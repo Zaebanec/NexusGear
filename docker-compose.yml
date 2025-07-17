@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - ./src:/app/src # Пробрасываем исходники для удобства разработки
+
+  db:
+    image: postgres:15-alpine
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "5433:5432" # Пробрасываем на порт 5433 хоста, чтобы избежать конфликтов
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
