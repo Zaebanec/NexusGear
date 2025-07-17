@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexus-gear-postgres
+    env_file:
+      - .env
+    ports:
+      # Маппинг порта хоста 5433 на порт контейнера 5432
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus-gear-bot
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Монтируем исходный код для удобства разработки
+      - ./src:/app/src
+    restart: unless-stopped
+
+  adminer:
+    image: adminer
+    container_name: nexus-gear-adminer
+    ports:
+      # Маппинг порта хоста 8081 на порт контейнера 8080
+      - "8081:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
