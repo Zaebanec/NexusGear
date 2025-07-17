@@ -11,7 +11,9 @@ async def main():
     """Основная функция для запуска бота."""
     logging.basicConfig(level=logging.INFO)
 
-    bot = Bot(token=settings.bot.get_secret_value())
+    # ### ИЗМЕНЕНИЕ ЗДЕСЬ ###
+    # Вызываем get_secret_value() на самом поле `token`, а не на `settings.bot`
+    bot = Bot(token=settings.bot.token.get_secret_value())
     dp = Dispatcher()
 
     # Настраиваем и внедряем DI-контейнер
