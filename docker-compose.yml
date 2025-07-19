@@ -2,34 +2,50 @@ services:
   bot:
     build: .
     restart: always
-    env_file:
-      - .env
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Удаляем ненадежный env_file
+    # env_file:
+    #   - .env
+    # и переносим переменные напрямую в секцию environment
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     depends_on:
       - db
     volumes:
-      - ./src:/app/src
+      - .:/app
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
-      - nexus_store_net
+      - nexus_gear_network
 
   db:
     image: postgres:15-alpine
     restart: always
-    env_file:
-      - .env
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Также удаляем env_file и используем environment
+    # Docker Compose автоматически подставит значения из вашего .env файла
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     ports:
-      - "5434:5432"
+      - "5433:5432"
     volumes:
-      # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-      # Используем наш новый, уникально именованный том
-      - nexus_store_pg_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     networks:
-      - nexus_store_net
+      - nexus_gear_network
 
-# --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-# Определяем наш новый, уникально именованный том
 volumes:
-  nexus_store_pg_data:
+  postgres_data:
 
 networks:
-  nexus_store_net:
+  nexus_gear_network:
     driver: bridge

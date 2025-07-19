@@ -11,10 +11,11 @@ package-mode = false
 python = "^3.11"
 aiohttp = "^3.9.3"
 aiogram = "^3.4.1"
-sqlalchemy = {extras = ["asyncpg"], version = "^2.0.27"}
+sqlalchemy = {extras = ["asyncpg"], version = "^2.0.41"}
 alembic = "^1.13.1"
 pydantic-settings = "^2.2.1"
 dishka = "^1.1.0"
+asyncpg = "^0.30.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.1.1"
