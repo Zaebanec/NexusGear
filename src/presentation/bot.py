@@ -10,10 +10,14 @@ from src.infrastructure.config import settings
 from src.infrastructure.di.providers import (
     ConfigProvider,
     DbProvider,
+    MemoryProvider,
     RepoProvider,
     ServiceProvider,
 )
-# Убираем импорт setup_di
+# --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+# 1. Удаляем импорт ненужной функции
+# from src.presentation.di import setup_di
+# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 from src.presentation.handlers.catalog import catalog_router
 from src.presentation.handlers.common import common_router
 from src.presentation.web.app import setup_app
@@ -22,7 +26,11 @@ from src.presentation.web.app import setup_app
 async def main():
     logging.basicConfig(level=logging.INFO)
     container = make_async_container(
-        ConfigProvider(), DbProvider(), RepoProvider(), ServiceProvider()
+        ConfigProvider(),
+        DbProvider(),
+        MemoryProvider(),
+        RepoProvider(),
+        ServiceProvider()
     )
 
     bot = Bot(
@@ -30,19 +38,20 @@ async def main():
         default=DefaultBotProperties(parse_mode="HTML")
     )
 
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-    # Передаем контейнер напрямую в Dispatcher.
-    # Он будет доступен во всех хендлерах.
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # 2. Передаем контейнер напрямую в Dispatcher.
+    #    Это и есть наша новая стратегия.
     dp = Dispatcher(dishka_container=container)
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+    
     dp.include_router(common_router)
     dp.include_router(catalog_router)
 
-    # Убираем вызов setup_di, он больше не нужен
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # 3. Удаляем вызов ненужной функции
     # setup_di(dp, container)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-    # Передаем контейнер в веб-приложение по-старому
     app = setup_app(dishka_container=container)
     runner = web.AppRunner(app)
     await runner.setup()
