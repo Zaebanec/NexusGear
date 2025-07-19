@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiohttp import web
 from dishka import make_async_container
 
@@ -12,11 +13,9 @@ from src.infrastructure.di.providers import (
     RepoProvider,
     ServiceProvider,
 )
-from src.presentation.di import setup_di
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+# Убираем импорт setup_di
 from src.presentation.handlers.catalog import catalog_router
 from src.presentation.handlers.common import common_router
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 from src.presentation.web.app import setup_app
 
 
@@ -26,18 +25,24 @@ async def main():
         ConfigProvider(), DbProvider(), RepoProvider(), ServiceProvider()
     )
 
-    # --- Настройка Telegram-бота ---
-    bot = Bot(token=settings.bot.get_secret_value(), parse_mode="HTML")
-    dp = Dispatcher()
-    setup_di(dp, container)
+    bot = Bot(
+        token=settings.bot.token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode="HTML")
+    )
 
     # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-    # Регистрируем роутеры
-    dp.include_router(common_router)
-    dp.include_router(catalog_router)
+    # Передаем контейнер напрямую в Dispatcher.
+    # Он будет доступен во всех хендлерах.
+    dp = Dispatcher(dishka_container=container)
     # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    # --- Настройка веб-сервера AIOHTTP ---
+    dp.include_router(common_router)
+    dp.include_router(catalog_router)
+
+    # Убираем вызов setup_di, он больше не нужен
+    # setup_di(dp, container)
+
+    # Передаем контейнер в веб-приложение по-старому
     app = setup_app(dishka_container=container)
     runner = web.AppRunner(app)
     await runner.setup()

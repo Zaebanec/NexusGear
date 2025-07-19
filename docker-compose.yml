@@ -1,12 +1,22 @@
 services:
   bot:
-    build: .
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    # Создаем "нерушимый контракт":
+    # 1. Устанавливаем зависимости без кэша.
+    # 2. ВЫВОДИМ В ЛОГ ключевую строку кода для проверки.
+    # 3. Только ПОСЛЕ этого запускаем бота.
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt && \
+             echo '--- VERIFYING CODE ---' && \
+             cat src/presentation/handlers/catalog.py | grep 'show_categories' && \
+             echo '--- STARTING BOT ---' && \
+             python -m src.presentation.bot"
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
     restart: always
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # Удаляем ненадежный env_file
-    # env_file:
-    #   - .env
-    # и переносим переменные напрямую в секцию environment
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - DB_HOST=${DB_HOST}
@@ -14,11 +24,8 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     depends_on:
       - db
-    volumes:
-      - .:/app
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -28,14 +35,10 @@ services:
   db:
     image: postgres:15-alpine
     restart: always
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # Также удаляем env_file и используем environment
-    # Docker Compose автоматически подставит значения из вашего .env файла
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     ports:
       - "5433:5432"
     volumes:

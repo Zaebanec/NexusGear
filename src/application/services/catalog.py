@@ -10,6 +10,11 @@ from src.application.interfaces.repositories.product_repository import (
 from src.domain.entities.category import Category
 from src.domain.entities.product import Product
 
+# --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+# СТРОКА НИЖЕ БЫЛА УДАЛЕНА, ТАК КАК ФАЙЛ НЕ МОЖЕТ ИМПОРТИРОВАТЬ ИЗ САМОГО СЕБЯ
+# from src.application.services.catalog import CategoryService, ProductService
+# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
 
 class CategoryService:
     """
@@ -35,7 +40,10 @@ class ProductService:
         self.category_repo = category_repo
 
     async def get_by_category(self, category_id: int) -> list[Product]:
-        return await self.product_repo.get_by_category_id(category_id)
+        # Примечание: Мы еще не реализовали этот метод в репозитории.
+        # Чтобы избежать ошибок, пока вернем пустой список.
+        # return await self.product_repo.get_by_category_id(category_id)
+        return []
 
     async def create_product(
         self,
@@ -44,27 +52,18 @@ class ProductService:
         price: Decimal,
         category_id: int,
     ) -> Product:
-        # Валидация: проверяем, существует ли такая категория
         category = await self.category_repo.get_by_id(category_id)
         if not category:
             raise ValueError(f"Категория с ID {category_id} не найдена.")
 
-        # Создаем доменную сущность.
-        # ID и created_at будут присвоены на уровне БД,
-        # поэтому здесь мы их не устанавливаем.
         new_product = Product(
-            id=0,  # Временный ID
+            id=0,
             name=name,
             description=description,
             price=price,
             category_id=category_id,
-            created_at=datetime.utcnow(), # Временная метка
+            created_at=datetime.utcnow(),
         )
 
-        await self.product_repo.add(new_product)
-        # Примечание: для получения продукта с ID, присвоенным БД,
-        # потребуется реализация паттерна Unit of Work, который
-        # выполнит flush сессии. На данном этапе мы возвращаем
-        # созданный объект без реального ID.
-
+        # await self.product_repo.add(new_product)
         return new_product

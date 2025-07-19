@@ -1,19 +1,9 @@
-from aiogram import Dispatcher
-from dishka import make_async_container
+from aiogram import Router  # Изменяем импорт
+from dishka.async_container import AsyncContainer
 from dishka.integrations.aiogram import setup_dishka
 
-from src.infrastructure.di.providers import (
-    ConfigProvider,
-    DbProvider,
-    RepoProvider,
-    ServiceProvider,  # <-- Импортируем новый провайдер
-)
-
-def setup_di(dispatcher: Dispatcher):
-    container = make_async_container(
-        ConfigProvider(),
-        DbProvider(),
-        RepoProvider(),
-        ServiceProvider(),  # <-- Регистрируем новый провайдер
-    )
-    setup_dishka(container=container, router=dispatcher)
+def setup_dishka_for_router(container: AsyncContainer, router: Router):
+    """
+    Применяет DI-middleware к КОНКРЕТНОМУ роутеру.
+    """
+    setup_dishka(container=container, router=router)
