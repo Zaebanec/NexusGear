@@ -1,22 +1,25 @@
+from aiogram import Dispatcher
 from dishka import make_async_container
 from dishka.integrations.aiogram import setup_dishka
-from aiogram import Dispatcher
 
-from src.infrastructure.di.providers import ConfigProvider, DbProvider
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+from src.infrastructure.di.providers import ConfigProvider, DbProvider, RepoProvider
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 def setup_di(dispatcher: Dispatcher):
     """
     Настраивает DI-контейнер dishka и интегрирует его с aiogram.
     """
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
     # Создаем контейнер, передавая ему все наши провайдеры
     container = make_async_container(
         ConfigProvider(),
         DbProvider(),
-        # Здесь будут добавляться другие провайдеры (сервисы, репозитории)
+        RepoProvider(), # <-- Регистрируем новый провайдер
+        # Здесь будут добавляться другие провайдеры (сервисы)
     )
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
     # Интегрируем контейнер с диспетчером aiogram.
-    # Это добавит middleware, которое будет создавать REQUEST-скоуп
-    # для каждого входящего сообщения и внедрять зависимости в хендлеры.
     setup_dishka(container=container, router=dispatcher)
