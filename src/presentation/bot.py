@@ -13,29 +13,31 @@ from src.infrastructure.di.providers import (
     ServiceProvider,
 )
 from src.presentation.di import setup_di
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+from src.presentation.handlers.catalog import catalog_router
+from src.presentation.handlers.common import common_router
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 from src.presentation.web.app import setup_app
 
 
 async def main():
-    """Основная функция для параллельного запуска бота и веб-сервера."""
     logging.basicConfig(level=logging.INFO)
-
-    # --- Создание DI-контейнера ---
     container = make_async_container(
-        ConfigProvider(),
-        DbProvider(),
-        RepoProvider(),
-        ServiceProvider(),
+        ConfigProvider(), DbProvider(), RepoProvider(), ServiceProvider()
     )
 
     # --- Настройка Telegram-бота ---
-    bot = Bot(token=settings.bot.get_secret_value())
+    bot = Bot(token=settings.bot.get_secret_value(), parse_mode="HTML")
     dp = Dispatcher()
-    # Интегрируем DI с Aiogram
     setup_di(dp, container)
 
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    # Регистрируем роутеры
+    dp.include_router(common_router)
+    dp.include_router(catalog_router)
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     # --- Настройка веб-сервера AIOHTTP ---
-    # Передаем тот же контейнер в веб-приложение
     app = setup_app(dishka_container=container)
     runner = web.AppRunner(app)
     await runner.setup()
