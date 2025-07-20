@@ -10,11 +10,6 @@ from src.application.interfaces.repositories.product_repository import (
 from src.domain.entities.category import Category
 from src.domain.entities.product import Product
 
-# --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-# СТРОКА НИЖЕ БЫЛА УДАЛЕНА, ТАК КАК ФАЙЛ НЕ МОЖЕТ ИМПОРТИРОВАТЬ ИЗ САМОГО СЕБЯ
-# from src.application.services.catalog import CategoryService, ProductService
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
 
 class CategoryService:
     """
@@ -39,11 +34,11 @@ class ProductService:
         self.product_repo = product_repo
         self.category_repo = category_repo
 
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Эта функция теперь имеет правильный отступ
     async def get_by_category(self, category_id: int) -> list[Product]:
-        # Примечание: Мы еще не реализовали этот метод в репозитории.
-        # Чтобы избежать ошибок, пока вернем пустой список.
-        # return await self.product_repo.get_by_category_id(category_id)
-        return []
+        return await self.product_repo.get_by_category_id(category_id)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     async def create_product(
         self,
@@ -64,6 +59,5 @@ class ProductService:
             category_id=category_id,
             created_at=datetime.utcnow(),
         )
-
-        # await self.product_repo.add(new_product)
+        # В будущем здесь будет `self.product_repo.add(new_product)`
         return new_product
