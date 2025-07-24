@@ -1,0 +1,285 @@
+--- FILE: src/presentation/handlers/common.py ---
+from aiogram import Router
+from aiogram.filters import CommandStart
+from aiogram.types import Message
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+
+common_router = Router()
+
+def get_main_menu_keyboard():
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="🛍️ Каталог")
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    builder.button(text="🛒 Корзина")
+    builder.adjust(2) # Располагаем кнопки по две в ряд
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    return builder.as_markup(resize_keyboard=True)
+
+@common_router.message(CommandStart())
+async def start_handler(message: Message):
+    await message.answer(
+        f"Добро пожаловать в NEXUS Gear, {message.from_user.full_name}!",
+        reply_markup=get_main_menu_keyboard(),
+    )
+--- FILE: src/presentation/handlers/catalog.py ---
+
+from decimal import Decimal
+from aiogram import Dispatcher, F, Router
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from dishka import Scope
+
+from src.application.services.catalog import CategoryService, ProductService
+
+class CategoryCallbackFactory(CallbackData, prefix="category"):
+    id: int
+    name: str
+
+class AddProductCallbackFactory(CallbackData, prefix="add_product"):
+    id: int
+    name: str
+    price: Decimal
+
+catalog_router = Router()
+
+@catalog_router.message(F.text == "🛍️ Каталог")
+async def show_categories(message: Message, dispatcher: Dispatcher):
+    """
+    Обработчик для отображения списка категорий в виде инлайн-кнопок.
+    """
+    container = dispatcher["dishka_container"]
+    async with container(scope=Scope.REQUEST) as request_container:
+        category_service = await request_container.get(CategoryService)
+
+        categories = await category_service.get_all()
+        if not categories:
+            await message.answer("К сожалению, сейчас нет доступных категорий.")
+            return
+
+        builder = InlineKeyboardBuilder()
+        for category in categories:
+            builder.button(
+                text=category.name,
+                callback_data=CategoryCallbackFactory(id=category.id, name=category.name),
+            )
+        builder.adjust(2)
+
+        await message.answer(
+            "Выберите категорию:", reply_markup=builder.as_markup()
+        )
+
+
+@catalog_router.callback_query(CategoryCallbackFactory.filter())
+async def show_products(
+    query: CallbackQuery,
+    callback_data: CategoryCallbackFactory,
+    dispatcher: Dispatcher,
+):
+    """
+    Обработчик для отображения товаров выбранной категории.
+    """
+    container = dispatcher["dishka_container"]
+    async with container(scope=Scope.REQUEST) as request_container:
+        product_service = await request_container.get(ProductService)
+
+        products = await product_service.get_by_category(callback_data.id)
+        if not products:
+            await query.message.answer("В этой категории пока нет товаров.")
+            await query.answer()
+            return
+
+        await query.answer(f"Загружаю товары из '{callback_data.name}'...")
+        for product in products:
+            card = (
+                f"<b>{product.name}</b>\n"
+                f"<i>Цена: {product.price} руб.</i>\n\n"
+                f"{product.description}"
+            )
+            builder = InlineKeyboardBuilder()
+            builder.button(
+                text="➕ Добавить в корзину",
+                callback_data=AddProductCallbackFactory(
+                    id=product.id, name=product.name, price=product.price
+                ),
+            )
+            await query.message.answer(card, reply_markup=builder.as_markup())
+--- FILE: src/presentation/handlers/cart.py ---
+import logging # <-- 1. Добавляем импорт
+from decimal import Decimal
+from aiogram import Dispatcher, F, Router
+from aiogram.filters.callback_data import CallbackData
+from aiogram.types import CallbackQuery, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from dishka import Scope
+
+from src.application.contracts.cart.cart_repository import ICartRepository
+from src.application.services.order_service import OrderService
+from src.domain.entities.cart_item import CartItem
+
+from .catalog import AddProductCallbackFactory
+
+cart_router = Router()
+
+class CreateOrderCallbackFactory(CallbackData, prefix="create_order"):
+    pass
+
+
+@cart_router.callback_query(AddProductCallbackFactory.filter())
+async def add_product_to_cart(
+    query: CallbackQuery,
+    callback_data: AddProductCallbackFactory,
+    dispatcher: Dispatcher,
+):
+    """Обработчик для добавления товара в корзину."""
+    container = dispatcher["dishka_container"]
+    # Для работы с корзиной не нужен REQUEST скоуп, так как она синглтон (APP)
+    cart_repo = await container.get(ICartRepository)
+    
+    item_to_add = CartItem(
+        product_id=callback_data.id,
+        name=callback_data.name,
+        price=callback_data.price,
+        quantity=1,
+    )
+    await cart_repo.add_item(user_id=query.from_user.id, item=item_to_add)
+
+    await query.answer(
+        f'Товар "{callback_data.name}" добавлен в корзину!',
+        show_alert=True
+    )
+
+@cart_router.message(F.text == "🛒 Корзина")
+async def view_cart(message: Message, dispatcher: Dispatcher):
+    """Обработчик для просмотра содержимого корзины."""
+    container = dispatcher["dishka_container"]
+    cart_repo = await container.get(ICartRepository)
+    
+    items = await cart_repo.get_by_user_id(user_id=message.from_user.id)
+
+    if not items:
+        await message.answer("Ваша корзина пуста.")
+        return
+
+    cart_text = "<b>Ваша корзина:</b>\n\n"
+    total_amount = Decimal("0")
+    for i, item in enumerate(items, 1):
+        item_total = item.price * item.quantity
+        cart_text += (
+            f"{i}. {item.name}\n"
+            f"   {item.quantity} шт. x {item.price} руб. = {item_total} руб.\n"
+        )
+        total_amount += item_total
+    
+    cart_text += f"\n<b>Итого: {total_amount} руб.</b>"
+    
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Оформить заказ",
+        callback_data=CreateOrderCallbackFactory(),
+    )
+    await message.answer(cart_text, reply_markup=builder.as_markup())
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+@cart_router.callback_query(CreateOrderCallbackFactory.filter())
+async def create_order(query: CallbackQuery, dispatcher: Dispatcher):
+    """
+    Обработчик для создания заказа из корзины.
+    """
+    container = dispatcher["dishka_container"]
+    async with container(scope=Scope.REQUEST) as request_container:
+        order_service = await request_container.get(OrderService)
+        
+        try:
+            # Вызываем сервис, который содержит всю сложную бизнес-логику
+            order = await order_service.create_order_from_cart(user_id=query.from_user.id)
+            
+            # Отправляем пользователю подтверждение
+            await query.message.answer(
+                f"✅ Ваш заказ №{order.id} успешно создан и ожидает оплаты."
+            )
+            await query.answer("Заказ создан!")
+
+        except ValueError as e:
+            # Отлавливаем ошибку, если корзина оказалась пуста
+            await query.answer(str(e), show_alert=True)
+        except Exception as e:
+            # Отлавливаем любые другие непредвиденные ошибки
+            await query.answer("Произошла ошибка при создании заказа.", show_alert=True)
+            # Здесь также стоит добавить логирование
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+--- FILE: src/presentation/bot.py ---
+import asyncio
+import logging
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiohttp import web
+from dishka import make_async_container
+
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+# Импортируем нашу новую функцию настройки
+from src.infrastructure.logging.setup import setup_logging
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+from src.infrastructure.config import settings
+from src.infrastructure.di.providers import (
+    ConfigProvider,
+    DbProvider,
+    MemoryProvider,
+    RepoProvider,
+    ServiceProvider,
+)
+from src.presentation.handlers.catalog import catalog_router
+from src.presentation.handlers.common import common_router
+from src.presentation.web.app import setup_app
+
+
+async def main():
+    # --- НАЧАЛО ИСПРАВЛЕНИЙ ---
+    # Вызываем настройку логирования САМОЙ ПЕРВОЙ строкой
+    # с правильным отступом.
+    setup_logging()
+    # --- КОНЕЦ ИСПРАВЛЕНИЙ ---
+
+    container = make_async_container(
+        ConfigProvider(),
+        DbProvider(),
+        MemoryProvider(),
+        RepoProvider(),
+        ServiceProvider()
+    )
+
+    bot = Bot(
+        token=settings.bot.token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode="HTML")
+    )
+
+    dp = Dispatcher(dishka_container=container)
+    
+    dp.include_router(common_router)
+    dp.include_router(catalog_router)
+
+    app = setup_app(dishka_container=container)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+
+    try:
+        logging.info("Запуск веб-сервера и Telegram-бота...")
+        await site.start()
+        await dp.start_polling(bot)
+    finally:
+        logging.info("Остановка...")
+        await runner.cleanup()
+        await container.close()
+        await bot.session.close()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Приложение остановлено.")

@@ -1,3 +1,5 @@
+# src/application/services/order_service.py
+
 from decimal import Decimal
 
 from src.application.contracts.cart.cart_repository import ICartRepository
@@ -22,33 +24,36 @@ class OrderService:
         self.order_repo = order_repo
         self.order_item_repo = order_item_repo
 
-    async def create_order_from_cart(self, user_id: int) -> Order:
-        async with self.uow.atomic():
-            cart_items = await self.cart_repo.get_by_user_id(user_id)
-            if not cart_items:
-                raise ValueError("Корзина пуста. Невозможно создать заказ.")
+    async def create_order_from_cart(self, internal_user_id: int, telegram_id: int) -> Order:
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: УДАЛЕНА ВНЕШНЯЯ ТРАНЗАКЦИЯ ---
+        # async with self.uow.atomic(): <-- ЭТА СТРОКА УДАЛЕНА
 
-            total_amount = sum(item.price * item.quantity for item in cart_items)
+        # Используем telegram_id для получения корзины
+        cart_items = await self.cart_repo.get_by_user_id(telegram_id)
+        if not cart_items:
+            raise ValueError("Корзина пуста. Невозможно создать заказ.")
 
-            # Создаем заказ
-            order_entity = Order(
-                id=0, user_id=user_id, status=OrderStatus.PENDING,
-                total_amount=total_amount, created_at=None # Будет установлено БД
-            )
-            created_order = await self.order_repo.create(order_entity)
+        total_amount = sum(item.price * item.quantity for item in cart_items)
 
-            # Создаем позиции заказа
-            order_items = [
-                OrderItem(
-                    id=0, order_id=created_order.id, product_id=item.product_id,
-                    quantity=item.quantity, price_at_purchase=item.price
-                ) for item in cart_items
-            ]
-            await self.order_item_repo.create_items(order_items)
+        # Используем internal_user_id для создания заказа в БД
+        order_entity = Order(
+            id=0, user_id=internal_user_id, status=OrderStatus.PENDING,
+            total_amount=total_amount, created_at=None
+        )
+        created_order = await self.order_repo.create(order_entity)
 
-            # Очищаем корзину
-            await self.cart_repo.clear_by_user_id(user_id)
+        # Создаем позиции заказа
+        order_items = [
+            OrderItem(
+                id=0, order_id=created_order.id, product_id=item.product_id,
+                quantity=item.quantity, price_at_purchase=item.price
+            ) for item in cart_items
+        ]
+        await self.order_item_repo.create_items(order_items)
 
-            # Коммит транзакции произойдет автоматически при выходе из `uow.atomic()`
+        # Используем telegram_id для очистки корзины
+        await self.cart_repo.clear_by_user_id(telegram_id)
 
-            return created_order
+        # Коммит произойдет на уровне хендлера
+        return created_order
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---

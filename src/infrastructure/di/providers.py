@@ -26,6 +26,7 @@ from src.application.interfaces.repositories.user_repository import IUserReposit
 # --- Импорты Сервисов ---
 from src.application.services.catalog import CategoryService, ProductService
 from src.application.services.order_service import OrderService
+from src.application.services.user_service import UserService
 
 # --- Импорты Конфигурации и Реализаций ---
 from src.infrastructure.config import Settings, settings
@@ -40,10 +41,8 @@ from src.infrastructure.database.repositories.product_repository import (
     ProductRepository,
 )
 from src.infrastructure.database.repositories.user_repository import UserRepository
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
 from src.infrastructure.database.uow import UnitOfWork
 from src.infrastructure.memory.cart_repository import InMemoryCartRepository
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 
 class ConfigProvider(Provider):
@@ -71,17 +70,11 @@ class DbProvider(Provider):
         async with session_factory() as session:
             yield session
 
-# --- НАЧАЛО ИЗМЕНЕНИЙ ---
-# Создаем отдельный провайдер для In-Memory хранилищ
 class MemoryProvider(Provider):
-    # Ключевой момент: скоуп APP, чтобы корзина была синглтоном
-    # и не очищалась между запросами.
     scope = Scope.APP
-    
     @provide
     def get_cart_repo(self) -> ICartRepository:
         return InMemoryCartRepository()
-# --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 class RepoProvider(Provider):
     scope = Scope.REQUEST
@@ -108,7 +101,6 @@ class RepoProvider(Provider):
         
     @provide
     def get_uow(self, session: AsyncSession) -> IUnitOfWork:
-        # Заменяем заглушку на реальную реализацию
         return UnitOfWork(session)
 
 class ServiceProvider(Provider):
@@ -137,3 +129,12 @@ class ServiceProvider(Provider):
         order_item_repo: IOrderItemRepository,
     ) -> OrderService:
         return OrderService(uow, cart_repo, order_repo, order_item_repo)
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    # Эта функция теперь имеет правильный отступ
+    @provide
+    def get_user_service(
+        self, user_repo: IUserRepository, uow: IUnitOfWork
+    ) -> UserService:
+        return UserService(user_repo, uow)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---

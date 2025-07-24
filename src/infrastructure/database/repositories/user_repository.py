@@ -1,3 +1,5 @@
+# src/infrastructure/database/repositories/user_repository.py
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,11 +37,20 @@ class UserRepository(IUserRepository):
         db_user = await self.session.scalar(stmt)
         return _to_domain_user(db_user) if db_user else None
 
-    async def add(self, user: DomainUser) -> None:
+    async def add(self, user: DomainUser) -> DomainUser:
+        """
+        Добавляет нового пользователя в сессию, выполняет flush для получения ID
+        и возвращает актуальную доменную сущность.
+        """
         db_user = DbUser(
             telegram_id=user.telegram_id,
             full_name=user.full_name,
             username=user.username,
         )
         self.session.add(db_user)
-        # Commit и flush будут управляться на уровне сервиса или UoW
+        # Принудительно отправляем запрос в БД, чтобы сгенерировался ID
+        await self.session.flush()
+        # Обновляем объект из БД, чтобы получить все поля (например, created_at)
+        await self.session.refresh(db_user)
+        # Возвращаем доменную сущность с реальными данными из БД
+        return _to_domain_user(db_user)

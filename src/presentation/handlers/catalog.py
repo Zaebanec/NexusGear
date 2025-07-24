@@ -1,3 +1,5 @@
+
+from decimal import Decimal
 from aiogram import Dispatcher, F, Router
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import CallbackQuery, Message
@@ -10,12 +12,19 @@ class CategoryCallbackFactory(CallbackData, prefix="category"):
     id: int
     name: str
 
+class AddProductCallbackFactory(CallbackData, prefix="add_product"):
+    id: int
+    name: str
+    price: Decimal
+
 catalog_router = Router()
 
 @catalog_router.message(F.text == "🛍️ Каталог")
 async def show_categories(message: Message, dispatcher: Dispatcher):
+    """
+    Обработчик для отображения списка категорий в виде инлайн-кнопок.
+    """
     container = dispatcher["dishka_container"]
-    # --- ИЗМЕНЕНИЕ ---
     async with container(scope=Scope.REQUEST) as request_container:
         category_service = await request_container.get(CategoryService)
 
@@ -43,8 +52,10 @@ async def show_products(
     callback_data: CategoryCallbackFactory,
     dispatcher: Dispatcher,
 ):
+    """
+    Обработчик для отображения товаров выбранной категории.
+    """
     container = dispatcher["dishka_container"]
-    # --- ИЗМЕНЕНИЕ ---
     async with container(scope=Scope.REQUEST) as request_container:
         product_service = await request_container.get(ProductService)
 
@@ -61,4 +72,11 @@ async def show_products(
                 f"<i>Цена: {product.price} руб.</i>\n\n"
                 f"{product.description}"
             )
-            await query.message.answer(card)
+            builder = InlineKeyboardBuilder()
+            builder.button(
+                text="➕ Добавить в корзину",
+                callback_data=AddProductCallbackFactory(
+                    id=product.id, name=product.name, price=product.price
+                ),
+            )
+            await query.message.answer(card, reply_markup=builder.as_markup())
