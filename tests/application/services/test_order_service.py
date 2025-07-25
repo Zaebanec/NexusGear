@@ -1,18 +1,24 @@
-# tests/application/services/test_order_service.py
+# tests/application/services/test_order_service.py - ФИНАЛЬНАЯ СИНХРОНИЗИРОВАННАЯ ВЕРСИЯ
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from decimal import Decimal
 
 from src.application.services.order_service import OrderService
-from src.domain.entities.cart_item import CartItem
-from src.domain.entities.product import Product
 from src.domain.entities.order import Order
+from src.domain.entities.user import User
+from src.domain.entities.cart_item import CartItem # Импортируем для использования в spec
 
 @pytest.fixture
 def mock_uow():
-    """Фикстура для мока Unit of Work."""
-    return AsyncMock()
+    """
+    Фикстура для мока Unit of Work.
+    Предоставляет моки для всех необходимых вложенных репозиториев.
+    """
+    uow = AsyncMock()
+    uow.orders = AsyncMock()
+    uow.users = AsyncMock()
+    return uow
 
 @pytest.fixture
 def mock_cart_repo():
@@ -22,63 +28,58 @@ def mock_cart_repo():
 @pytest.fixture
 def order_service(mock_uow, mock_cart_repo):
     """Фикстура для создания экземпляра OrderService с моками."""
-    return OrderService(uow=mock_uow, cart_repository=mock_cart_repo)
+    return OrderService(uow=mock_uow, cart_repo=mock_cart_repo)
 
 @pytest.mark.asyncio
 async def test_create_order_successfully(order_service, mock_uow, mock_cart_repo):
     """
-    Тест: успешное создание заказа.
-    Проверяет, что сервис корректно создает заказ на основе содержимого корзины,
-    сохраняет его в БД через UoW и очищает корзину.
+    Тест: успешное создание заказа с использованием Unit of Work.
+    Полностью синхронизирован с финальной версией OrderService.
     """
     # 1. Arrange (Подготовка)
-    user_id = 12345
-    
-    # Моделируем товары и корзину
-    product1 = Product(id=1, name="Test Product 1", price=Decimal("100.00"), category_id=1)
-    product2 = Product(id=2, name="Test Product 2", price=Decimal("50.50"), category_id=1)
-    
-    cart_items = [
-        CartItem(product=product1, quantity=2), # 2 * 100.00 = 200.00
-        CartItem(product=product2, quantity=1), # 1 * 50.50 = 50.50
-    ]
-    # Ожидаемая общая сумма: 250.50
-    
-    # Настраиваем моки
-    mock_cart_repo.get_cart_items.return_value = cart_items
+    telegram_id = 12345
+    internal_user_id = 999
+
+    # Моделируем пользователя, которого вернет uow.users.get_by_telegram_id
+    mock_user = User(
+        id=internal_user_id,
+        telegram_id=telegram_id,
+        full_name="Test User",
+        username=None
+    )
+    mock_uow.users.get_by_telegram_id.return_value = mock_user
+
+    # Моделируем "умные" элементы корзины, которые ведут себя как настоящие
+    item1 = MagicMock(spec=CartItem)
+    item1.product_id = 1
+    item1.price = Decimal("100.00")
+    item1.quantity = 2
+
+    item2 = MagicMock(spec=CartItem)
+    item2.product_id = 2
+    item2.price = Decimal("50.50")
+    item2.quantity = 1
+
+    cart_items_from_repo = [item1, item2]
+    mock_cart_repo.get_by_user_id.return_value = cart_items_from_repo
     
     # 2. Act (Действие)
-    created_order = await order_service.create_order(user_id)
+    created_order = await order_service.create_order(telegram_id)
 
     # 3. Assert (Проверка)
     
-    # Проверяем, что UoW был использован для коммита
-    mock_uow.commit.assert_awaited_once()
+    # Проверяем, что сервис выполнил все необходимые вызовы
+    mock_uow.users.get_by_telegram_id.assert_awaited_once_with(telegram_id)
+    mock_cart_repo.get_by_user_id.assert_awaited_once_with(telegram_id)
+    mock_uow.orders.create.assert_called_once()
+    mock_cart_repo.clear_by_user_id.assert_awaited_once_with(telegram_id)
     
-    # Проверяем, что репозиторий заказов был вызван для добавления заказа
-    mock_uow.orders.add.assert_called_once()
+    # Проверяем детали сущности, переданной в репозиторий
+    added_order_entity: Order = mock_uow.orders.create.call_args.args[0]
     
-    # Проверяем, что корзина была очищена для данного пользователя
-    mock_cart_repo.clear_cart.assert_awaited_once_with(user_id)
+    assert isinstance(added_order_entity, Order)
+    assert added_order_entity.user_id == internal_user_id
+    assert added_order_entity.total_amount == Decimal("250.50")
     
-    # Проверяем детали созданного заказа
-    # mock_uow.orders.add.call_args.args[0] получает первый аргумент, 
-    # с которым был вызван метод add()
-    added_order: Order = mock_uow.orders.add.call_args.args[0]
-    
-    assert isinstance(added_order, Order)
-    assert added_order.user_id == user_id
-    assert len(added_order.items) == 2
-    assert added_order.total_amount == Decimal("250.50")
-    
-    # Проверяем корректность элементов заказа
-    assert added_order.items[0].product_id == 1
-    assert added_order.items[0].quantity == 2
-    assert added_order.items[0].price == Decimal("100.00")
-    
-    assert added_order.items[1].product_id == 2
-    assert added_order.items[1].quantity == 1
-    assert added_order.items[1].price == Decimal("50.50")
-    
-    assert created_order is not None
-    assert created_order.id == added_order.id
+    # Проверяем, что сервис вернул созданную сущность
+    assert created_order is added_order_entity

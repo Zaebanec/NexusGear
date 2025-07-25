@@ -72,7 +72,7 @@ class DbProvider(Provider):
 
 class MemoryProvider(Provider):
     scope = Scope.APP
-    @provide
+    @provide(scope=Scope.APP) # ЯВНО УКАЗЫВАЕМ СКОУП APP (SINGLETON)
     def get_cart_repo(self) -> ICartRepository:
         return InMemoryCartRepository()
 
@@ -125,16 +125,15 @@ class ServiceProvider(Provider):
         self,
         uow: IUnitOfWork,
         cart_repo: ICartRepository,
-        order_repo: IOrderRepository,
-        order_item_repo: IOrderItemRepository,
+        # Удалены неиспользуемые зависимости order_repo и order_item_repo
     ) -> OrderService:
-        return OrderService(uow, cart_repo, order_repo, order_item_repo)
+        # Передаем только те зависимости, которые реально нужны сервису
+        return OrderService(uow, cart_repo)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
     # Эта функция теперь имеет правильный отступ
     @provide
-    def get_user_service(
-        self, user_repo: IUserRepository, uow: IUnitOfWork
-    ) -> UserService:
-        return UserService(user_repo, uow)
+    def get_user_service(self, uow: IUnitOfWork) -> UserService:
+        return UserService(uow)
     # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
