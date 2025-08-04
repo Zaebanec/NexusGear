@@ -1,3 +1,5 @@
+# src/infrastructure/config.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+
 from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,26 +21,33 @@ class DBSettings(BaseSettings):
     @property
     def url(self) -> str:
         """Формирует URL для асинхронного подключения к PostgreSQL."""
-        # Используем get_secret_value() для безопасного доступа к секрету
         return (
             f"postgresql+asyncpg://"
             f"{self.user}:{self.password.get_secret_value()}"
             f"@{self.host}:{self.port}/{self.name}"
         )
 
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+class AppSettings(BaseSettings):
+    """Настройки для веб-приложения (TWA, API)."""
+    base_url: str
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
 
 class Settings(BaseSettings):
     """Основной класс настроек, объединяющий все остальные."""
-    # model_config позволяет указать источник настроек - .env файл
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        env_nested_delimiter='_' # Позволяет использовать BOT_TOKEN для settings.bot.token
+        env_nested_delimiter='__' # Используем двойное подчеркивание для вложенности
     )
 
     bot: BotSettings
     db: DBSettings
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+    app: AppSettings
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 
-# Создаем единственный экземпляр настроек, который будет использоваться во всем приложении
+# Создаем единственный экземпляр настроек
 settings = Settings()

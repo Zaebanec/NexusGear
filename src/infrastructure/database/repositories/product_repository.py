@@ -38,4 +38,3 @@ class ProductRepository(IProductRepository):
         stmt = select(DbProduct).where(DbProduct.category_id == category_id)
         result = await self.session.scalars(stmt)
         return [_to_domain_product(p) for p in result.all()]
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---

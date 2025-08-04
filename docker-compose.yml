@@ -1,34 +1,25 @@
+# ~/nexus-gear-store/docker-compose.yml - ФИНАЛЬНАЯ ВЕРСИЯ
+
 services:
   bot:
     image: python:3.11-slim
     working_dir: /app
     volumes:
       - .:/app
-    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-    # Создаем "нерушимый контракт":
-    # 1. Устанавливаем зависимости без кэша.
-    # 2. ВЫВОДИМ В ЛОГ ключевую строку кода для проверки.
-    # 3. Только ПОСЛЕ этого запускаем бота.
     command: >
       sh -c "pip install --no-cache-dir -r requirements.txt && \
-             echo '--- VERIFYING CODE ---' && \
-             cat src/presentation/handlers/catalog.py | grep 'show_categories' && \
-             echo '--- STARTING BOT ---' && \
              python -m src.presentation.bot"
-    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
     restart: always
-    environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
+    env_file:
+      - .env
     depends_on:
       - db
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    # --- ИЗМЕНЕНИЕ: Пробрасываем внутренний порт 8080 на внешний 8081 ---
+    ports:
+      - "8081:8080"
     networks:
       - nexus_gear_network
 
@@ -36,9 +27,10 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB__USER}
+      - POSTGRES_PASSWORD=${DB__PASSWORD}
+      - POSTGRES_DB=${DB__NAME}
+    # Порт 5433 для отладки можно оставить, он не мешает
     ports:
       - "5433:5432"
     volumes:

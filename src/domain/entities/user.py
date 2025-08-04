@@ -16,7 +16,7 @@ class User:
     telegram_id: int
     full_name: str
     username: Optional[str]
-    
+
     # --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Автоматическая установка времени создания ---
     # Мы используем default_factory, чтобы datetime.utcnow вызывался
     # каждый раз при создании нового экземпляра.

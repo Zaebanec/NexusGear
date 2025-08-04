@@ -1,12 +1,15 @@
+# src/presentation/handlers/catalog.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 from decimal import Decimal
-from aiogram import Dispatcher, F, Router
+
+from aiogram import F, Router
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from dishka import Scope
+from dishka import AsyncContainer, Scope  # <-- Импортируем AsyncContainer
 
 from src.application.services.catalog import CategoryService, ProductService
+
 
 class CategoryCallbackFactory(CallbackData, prefix="category"):
     id: int
@@ -20,12 +23,11 @@ class AddProductCallbackFactory(CallbackData, prefix="add_product"):
 catalog_router = Router()
 
 @catalog_router.message(F.text == "🛍️ Каталог")
-async def show_categories(message: Message, dispatcher: Dispatcher):
+async def show_categories(message: Message, dishka_container: AsyncContainer): # <-- ИЗМЕНЕНИЕ
     """
     Обработчик для отображения списка категорий в виде инлайн-кнопок.
     """
-    container = dispatcher["dishka_container"]
-    async with container(scope=Scope.REQUEST) as request_container:
+    async with dishka_container(scope=Scope.REQUEST) as request_container: # <-- ИЗМЕНЕНИЕ
         category_service = await request_container.get(CategoryService)
 
         categories = await category_service.get_all()
@@ -50,13 +52,12 @@ async def show_categories(message: Message, dispatcher: Dispatcher):
 async def show_products(
     query: CallbackQuery,
     callback_data: CategoryCallbackFactory,
-    dispatcher: Dispatcher,
+    dishka_container: AsyncContainer, # <-- ИЗМЕНЕНИЕ
 ):
     """
     Обработчик для отображения товаров выбранной категории.
     """
-    container = dispatcher["dishka_container"]
-    async with container(scope=Scope.REQUEST) as request_container:
+    async with dishka_container(scope=Scope.REQUEST) as request_container: # <-- ИЗМЕНЕНИЕ
         product_service = await request_container.get(ProductService)
 
         products = await product_service.get_by_category(callback_data.id)

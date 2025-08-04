@@ -1,17 +1,16 @@
-from aiogram import Dispatcher, Router
+# src/presentation/handlers/common.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+
+from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
-from dishka import Scope
+from dishka import AsyncContainer, Scope  # <-- Импортируем AsyncContainer
 
 from src.application.services.user_service import UserService
 
 common_router = Router()
 
 def get_main_menu_keyboard():
-    """
-    Создает и возвращает клавиатуру главного меню.
-    """
     builder = ReplyKeyboardBuilder()
     builder.button(text="🛍️ Каталог")
     builder.button(text="🛒 Корзина")
@@ -20,13 +19,14 @@ def get_main_menu_keyboard():
 
 
 @common_router.message(CommandStart())
-async def start_handler(message: Message, dispatcher: Dispatcher):
+async def start_handler(message: Message, dishka_container: AsyncContainer): # <-- ИЗМЕНЕНИЕ
     """
     Обработчик команды /start. Регистрирует пользователя и отправляет
     приветственное сообщение с клавиатурой главного меню.
     """
-    container = dispatcher["dishka_container"]
-    async with container(scope=Scope.REQUEST) as request_container:
+    # --- ИЗМЕНЕНИЕ: Убираем получение container из dispatcher ---
+    # async with dishka_container(...) теперь является стандартным паттерном
+    async with dishka_container(scope=Scope.REQUEST) as request_container:
         user_service = await request_container.get(UserService)
         await user_service.register_user_if_not_exists(
             telegram_id=message.from_user.id,
