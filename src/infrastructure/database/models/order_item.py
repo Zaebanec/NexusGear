@@ -2,6 +2,8 @@ from decimal import Decimal
 from sqlalchemy import ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.domain.entities.order import Order
+
 from .base import Base
 
 

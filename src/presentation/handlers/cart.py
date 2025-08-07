@@ -1,12 +1,17 @@
 # src/presentation/handlers/cart.py - ФИНАЛЬНАЯ ВЕРСИЯ С TWA
 
+import json
 import logging
 import traceback
-import json
 from decimal import Decimal
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, Message, WebAppInfo # <-- Импортируем WebAppInfo
+from aiogram.types import (  # <-- Импортируем WebAppInfo
+    CallbackQuery,
+    Message,
+    PreCheckoutQuery,  # <-- НОВЫЙ ИМПОРТ
+    WebAppInfo,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dishka import AsyncContainer, Scope
 
@@ -14,7 +19,7 @@ from src.application.contracts.cart.cart_repository import ICartRepository
 from src.application.contracts.persistence.uow import IUnitOfWork
 from src.application.services.order_service import OrderService
 from src.domain.entities.cart_item import CartItem
-from src.infrastructure.config import settings # <-- Импортируем настройки для URL
+from src.infrastructure.config import settings  # <-- Импортируем настройки для URL
 
 from .catalog import AddProductCallbackFactory
 
@@ -23,6 +28,14 @@ cart_router = Router()
 # Этот CallbackData больше не нужен, но оставим его, если понадобится в будущем
 # class CreateOrderCallbackFactory(CallbackData, prefix="create_order"):
 #     pass
+
+@cart_router.pre_checkout_query()
+async def pre_checkout_query_handler(query: PreCheckoutQuery):
+    """
+    Пустой обработчик для подтверждения готовности принять платеж.
+    Это необходимо для некоторых TWA-взаимодействий.
+    """
+    await query.answer(ok=True)
 
 @cart_router.callback_query(AddProductCallbackFactory.filter())
 async def add_product_to_cart(
@@ -76,11 +89,11 @@ async def view_cart(message: Message, dishka_container: AsyncContainer):
 @cart_router.message(F.web_app_data)
 async def web_app_data_received(message: Message, dishka_container: AsyncContainer):
     telegram_id = message.from_user.id
-    
+
     # Данные приходят в виде JSON-строки
     data = json.loads(message.web_app_data.data)
     # Можно добавить валидацию данных (например, через Pydantic)
-    
+
     # Выводим полученные данные для отладки
     await message.answer(
         f"Спасибо! Ваши данные для заказа получены:\n"
@@ -98,7 +111,7 @@ async def web_app_data_received(message: Message, dishka_container: AsyncContain
         try:
             async with uow.atomic():
                 order = await order_service.create_order(telegram_id=telegram_id)
-            
+
             # Добавляем детали из формы к сообщению об успехе
             await message.answer(
                 f"✅ Ваш заказ №{order.id} успешно создан и будет доставлен по адресу: {data.get('address')}.\n"

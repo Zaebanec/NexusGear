@@ -1,95 +1,137 @@
-=============== NEXUS GEAR STORE (НАШ ПРОЕКТ) ===============
+### File: /var/www/nexus-gear-store/src/presentation/web/app.py
+# src/presentation/web/app.py - ВЕРСИЯ, АДАПТИРОВАННАЯ ПОД ЭТАЛОН
+
+from aiohttp import web
+import aiohttp_cors
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
+from dishka.async_container import AsyncContainer
+import logging
+
+from src.infrastructure.config import settings
+
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{settings.app.base_url}{WEBHOOK_PATH}"
+
+async def on_startup(app: web.Application):
+    bot: Bot = app["bot"]
+    # --- ИЗМЕНЕНИЕ: Добавляем secret_token, как в рабочем боте ---
+    await bot.set_webhook(
+        url=WEBHOOK_URL,
+        secret_token=settings.app.secret_token.get_secret_value(),
+        drop_pending_updates=True # Оставим это для чистоты при перезапусках
+    )
+    logging.info(f"Webhook установлен на: {WEBHOOK_URL}")
+
+async def on_shutdown(app: web.Application):
+    bot: Bot = app["bot"]
+    await bot.delete_webhook()
+    logging.info("Webhook удален.")
+
+async def webhook_handler(request: web.Request) -> web.Response:
+    # --- ИЗМЕНЕНИЕ: Добавляем проверку secret_token, как в рабочем боте ---
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if secret != settings.app.secret_token.get_secret_value():
+        logging.warning("Received an update with invalid secret token!")
+        return web.Response(status=403)
+
+    bot: Bot = request.app["bot"]
+    dispatcher: Dispatcher = request.app["dispatcher"]
+    update = Update.model_validate(await request.json(), context={"bot": bot})
+    await dispatcher.feed_update(bot=bot, update=update)
+    return web.Response()
+
+def setup_app(
+    dishka_container: AsyncContainer, bot: Bot, dispatcher: Dispatcher
+) -> web.Application:
+    app = web.Application()
+    app["dishka_container"] = dishka_container
+    app["bot"] = bot
+    app["dispatcher"] = dispatcher
+
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    cors = aiohttp_cors.setup(app, defaults={
+        "*": aiohttp_cors.ResourceOptions(
+            allow_credentials=True,
+            expose_headers="*",
+            allow_headers="*",
+            allow_methods="*",
+        )
+    })
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Возвращаем старые, правильные пути ---
+    app.router.add_static(
+        "/static/", path="src/presentation/web/static", name="static"
+    )
+    app.router.add_get(
+        "/", lambda req: web.FileResponse("src/presentation/web/static/admin.html")
+    )
+    app.router.add_get(
+        "/order", lambda req: web.FileResponse("src/presentation/web/static/order_form.html")
+    )
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+    
+    webhook_route = cors.add(app.router.add_resource(WEBHOOK_PATH))
+    cors.add(webhook_route.add_route("POST", webhook_handler))
+
+    return app
+
+### File: /var/www/nexus-gear-store/src/static/order_form.js
 
 
-### File: ~/nexus-gear-store/docker-compose.yml
+### File: /var/www/nexus-gear-store/src/application/services/order_service.py
+# src/application/services/order_service.py - ФИНАЛЬНАЯ ВЕРСИЯ
 
+from decimal import Decimal
 
-### File: ~/nexus-gear-store/src/presentation/bot.py
+from src.application.contracts.cart.cart_repository import ICartRepository
+from src.application.contracts.persistence.uow import IUnitOfWork
+from src.domain.entities.order import Order, OrderStatus
+from src.domain.entities.order_item import OrderItem
 
+class OrderService:
+    def __init__(self, uow: IUnitOfWork, cart_repo: ICartRepository):
+        self.uow = uow
+        self.cart_repo = cart_repo
 
-### File: /etc/nginx/sites-available/shop-nexus-gear.ru
-# /etc/nginx/sites-available/shop-nexus-gear.ru - ФИНАЛЬНАЯ УПРОЩЕННАЯ ВЕРСИЯ
+    # --- ИЗМЕНЕНИЕ 1: Метод теперь принимает telegram_id, а не абстрактный user_id ---
+    async def create_order(self, telegram_id: int) -> Order:
+        # --- ИЗМЕНЕНИЕ 2: Сервис сам находит пользователя в рамках своей транзакции ---
+        # Это делает сервис более надежным и самодостаточным.
+        user = await self.uow.users.get_by_telegram_id(telegram_id)
+        if not user:
+            # Этот код никогда не должен выполниться, если /start работает,
+            # но это хорошая защитная мера.
+            raise ValueError(f"Попытка создать заказ для несуществующего пользователя: {telegram_id}")
 
-server {
-    server_name shop-nexus-gear.ru;
+        cart_items = await self.cart_repo.get_by_user_id(telegram_id)
+        if not cart_items:
+            raise ValueError("Корзина пуста. Невозможно создать заказ.")
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: ЕДИНЫЙ location ДЛЯ ВСЕХ ЗАПРОСОВ ---
-    location / {
-        # Все запросы (на /, /order, /webhook, /static/...) 
-        # будут проксироваться на наше приложение.
-        proxy_pass http://195.133.63.212:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        total_amount = sum(item.price * item.quantity for item in cart_items)
+
+        # --- ИЗМЕНЕНИЕ 3: Мы используем user.id (внутренний PK), а не telegram_id ---
+        order_entity = Order(
+            id=0,
+            user_id=user.id, # <--- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+            status=OrderStatus.PENDING,
+            total_amount=total_amount,
+        )
+
+        order_entity.items = [
+            OrderItem(
+                id=0,
+                order=order_entity,
+                product_id=item.product_id,
+                quantity=item.quantity,
+                price_at_purchase=item.price
+            ) for item in cart_items
+        ]
         
-        # Эти заголовки важны для WebSocket и других протоколов,
-        # которые могут понадобиться в будущем.
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        await self.uow.orders.create(order_entity)
+        
+        await self.cart_repo.clear_by_user_id(telegram_id)
 
-    listen 443 ssl http2;
-    # ... (все SSL-настройки остаются БЕЗ ИЗМЕНЕНИЙ) ...
-}
-
-# Блок для редиректа с HTTP на HTTPS остается БЕЗ ИЗМЕНЕНИЙ
-server {
-    if ($host = shop-nexus-gear.ru) {
-        return 301 https://$host$request_uri;
-    }
-    listen 80;
-    server_name shop-nexus-gear.ru;
-    return 404; # managed by Certbot
-}
-
-
-
-=============== KALIN RENT BOT (СТАРЫЙ ПРОЕКТ) ===============
-
-
-### File: ~/kalin-rent-bot/docker-compose.yml
-
-
-### File: ~/kalin-rent-bot/src/main.py (ПРЕДПОЛОЖЕНИЕ)
-File not found: ~/kalin-rent-bot/src/main.py
-
-
-### File: /etc/nginx/sites-available/24kalinrentbot.ru
-# Файл: /etc/nginx/sites-available/24kalinrentbot.ru
-# ВЕРСИЯ: Финальная, с исправленным proxy_pass.
-
-server {
-    server_name 24kalinrentbot.ru;
-
-    location / {
-        # --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ---
-        # Убеждаемся, что мы проксируем на HTTP, а не HTTPS.
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    listen [::]:443 ssl http2; # managed by Certbot
-    listen 443 ssl http2; # managed by Certbot
-    ssl_certificate /etc/letsencrypt/live/24kalinrentbot.ru/fullchain.pem; # managed by Certbot
-    ssl_certificate_key /etc/letsencrypt/live/24kalinrentbot.ru/privkey.pem; # managed by Certbot
-    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
-}
-
-server {
-    if ($host = 24kalinrentbot.ru) {
-        return 301 https://$host$request_uri;
-    } # managed by Certbot
-
-    listen 80;
-    listen [::]:80;
-    server_name 24kalinrentbot.ru;
-    return 404; # managed by Certbot
-}
+        return order_entity

@@ -1,6 +1,5 @@
-// src/presentation/web/static/order_form.js - УПРОЩЕННАЯ ВЕРСИЯ
+// /var/www/nexus-gear-store/src/static/order_form.js - ФИНАЛЬНАЯ ВЕРСИЯ
 
-// Обертка DOMContentLoaded больше не нужна, так как скрипт подключен в конце body
 const tg = window.Telegram.WebApp;
 
 tg.ready();
@@ -30,33 +29,47 @@ function validateForm() {
     }
 }
 
-// Этот код теперь гарантированно сработает, так как 'form' не будет null
 form.addEventListener('input', validateForm);
 
-tg.onEvent('mainButtonClicked', function () {
-    // --- НАЧАЛО ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
+// Делаем обработчик асинхронным, чтобы использовать await
+tg.onEvent('mainButtonClicked', async function () {
+    mainButton.showProgress(false);
+    mainButton.disable();
 
-    // 1. Показываем индикатор загрузки, чтобы пользователь понял, что процесс пошел.
-    tg.MainButton.showProgress(false); // false - круговой индикатор
-
-    // 2. Делаем кнопку неактивной, чтобы избежать повторных нажатий.
-    tg.MainButton.disable();
-
-    // 3. Собираем данные.
-    const data = {
+    const orderData = {
         full_name: nameInput.value,
         phone: phoneInput.value,
         address: addressInput.value,
+        // ВАЖНО: Безопасно передаем данные о пользователе из Telegram
+        user: tg.initDataUnsafe.user 
     };
 
-    // 4. Отправляем данные.
-    tg.sendData(JSON.stringify(data));
-    
-    // 5. Закрываем приложение.
-    // Важно: tg.sendData асинхронна по своей природе, хотя и не возвращает Promise.
-    // Telegram получает данные и сам решает, когда отправить сообщение.
-    // Вызов tg.close() сразу после этого является стандартной практикой.
-    tg.close();
-    
-    // --- КОНЕЦ ФИНАЛЬНОГО ИСПРАВЛЕНИЯ ---
+    try {
+        // Используем стандартный fetch для отправки данных на наш API
+        const response = await fetch('/api/create_order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(orderData),
+        });
+
+        if (!response.ok) {
+            // Пытаемся получить текст ошибки от сервера
+            const errorData = await response.json().catch(() => ({ message: 'Не удалось получить детали ошибки' }));
+            throw new Error(errorData.message || `Ошибка сервера: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        // Показываем пользователю сообщение об успехе и закрываем TWA
+        tg.showAlert(`Ваш заказ №${result.order_id} успешно создан!`);
+        tg.close();
+
+    } catch (error) {
+        // Показываем ошибку и возвращаем кнопку в активное состояние
+        tg.showAlert(`Произошла ошибка: ${error.message}`);
+        mainButton.hideProgress();
+        mainButton.enable();
+    }
 });

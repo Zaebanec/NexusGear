@@ -1,27 +1,23 @@
-# ~/nexus-gear-store/docker-compose.yml - ФИНАЛЬНАЯ ВЕРСИЯ
+# /var/www/nexus-gear-store/docker-compose.yml - ФИНАЛЬНАЯ ВЕРСИЯ
 
 services:
   bot:
-    image: python:3.11-slim
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt && \
-             python -m src.presentation.bot"
+    build: .
     restart: always
     env_file:
       - .env
+    volumes:
+      - .:/app
     depends_on:
       - db
     dns:
       - 8.8.8.8
       - 8.8.4.4
-    # --- ИЗМЕНЕНИЕ: Пробрасываем внутренний порт 8080 на внешний 8081 ---
     ports:
       - "8081:8080"
-    networks:
-      - nexus_gear_network
+    # --- ИЗМЕНЕНИЕ: Убираем явное указание сети ---
+    # networks:
+    #   - nexus_gear_network
 
   db:
     image: postgres:15-alpine
@@ -30,17 +26,18 @@ services:
       - POSTGRES_USER=${DB__USER}
       - POSTGRES_PASSWORD=${DB__PASSWORD}
       - POSTGRES_DB=${DB__NAME}
-    # Порт 5433 для отладки можно оставить, он не мешает
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - nexus_gear_network
+    # --- ИЗМЕНЕНИЕ: Убираем явное указание сети ---
+    # networks:
+    #   - nexus_gear_network
 
 volumes:
   postgres_data:
 
-networks:
-  nexus_gear_network:
-    driver: bridge
+# --- ИЗМЕНЕНИЕ: Полностью удаляем секцию networks ---
+# networks:
+#   nexus_gear_network:
+#     driver: bridge

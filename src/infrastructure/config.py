@@ -2,12 +2,11 @@
 
 from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pydantic import SecretStr
 
 class BotSettings(BaseSettings):
     """Настройки для Telegram бота."""
     token: SecretStr
-
 
 class DBSettings(BaseSettings):
     """Настройки для подключения к базе данных."""
@@ -31,6 +30,7 @@ class DBSettings(BaseSettings):
 class AppSettings(BaseSettings):
     """Настройки для веб-приложения (TWA, API)."""
     base_url: str
+    secret_token: SecretStr
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 

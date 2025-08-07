@@ -1,27 +1,26 @@
-# Этап 1: Установка зависимостей
-FROM python:3.11-slim as builder
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-WORKDIR /app
-RUN pip install poetry
-RUN poetry config virtualenvs.create false
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --without dev --no-root
+# ~/nexus-gear-store/Dockerfile - КАНОНИЧЕСКАЯ ВЕРСИЯ
 
-
-# Этап 2: Финальный образ
+# Шаг 1: Используем официальный образ Python
 FROM python:3.11-slim
+
+# Шаг 2: Устанавливаем рабочую директорию внутри контейнера
 WORKDIR /app
-RUN adduser --disabled-password --gecos "" appuser
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
 
-# --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-# Явно добавляем путь, куда poetry/pip скорее всего кладет исполняемые файлы
-# для непривилегированного пользователя.
-ENV PATH="/root/.local/bin:${PATH}"
-# --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+# Шаг 3: Копируем только файлы зависимостей
+# Это оптимизирует кеширование Docker. Этот слой не будет пересобираться,
+# если вы меняете только код, а не зависимости.
+COPY poetry.lock pyproject.toml ./
 
-COPY --chown=appuser:appuser src/ /app/src
-USER appuser
+# Шаг 4: Устанавливаем Poetry и зависимости проекта
+# --no-root говорит poetry не создавать venv, а ставить в системный python
+# --only main говорит ставить только основные зависимости, без dev (black, pytest)
+RUN pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi --only main
+
+# Шаг 5: Копируем весь остальной код нашего приложения
+COPY . .
+
+# Шаг 6: Указываем команду, которая будет запускаться при старте контейнера
+# Это чистый запуск, без всяких оболочек sh -c
 CMD ["python", "-m", "src.presentation.bot"]
