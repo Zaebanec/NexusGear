@@ -1,17 +1,13 @@
-from abc import ABC, abstractmethod
-from src.domain.entities.order import Order
-from src.domain.entities.order_item import OrderItem
+# src/application/contracts/order/order_repository.py
 
-class IOrderRepository(ABC):
-    @abstractmethod
-    async def create(self, order: Order) -> Order:
-        raise NotImplementedError
+from __future__ import annotations
+from typing import Protocol, Iterable, Optional
+from src.domain.entities.order import Order as DomainOrder
+from src.domain.entities.order_item import OrderItem as DomainOrderItem
 
-    @abstractmethod
-    async def get_by_id(self, order_id: int) -> Order | None:
-        raise NotImplementedError
+class IOrderRepository(Protocol):
+    async def create(self, order: DomainOrder) -> DomainOrder: ...
+    async def get_by_id(self, order_id: int) -> Optional[DomainOrder]: ...
 
-class IOrderItemRepository(ABC):
-    @abstractmethod
-    async def create_items(self, items: list[OrderItem]) -> None:
-        raise NotImplementedError
+class IOrderItemRepository(Protocol):
+    async def create_items(self, items: Iterable[DomainOrderItem]) -> None: ...

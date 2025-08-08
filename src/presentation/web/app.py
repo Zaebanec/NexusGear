@@ -10,6 +10,10 @@ import logging
 from src.infrastructure.config import settings
 from src.application.contracts.persistence.uow import IUnitOfWork
 from src.application.services.order_service import OrderService
+from .api.handlers.category import get_categories
+from .api.handlers.product import get_products_by_category
+from .api.schemas.order import CreateOrderSchema
+from pydantic import ValidationError
 
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{settings.app.base_url}{WEBHOOK_PATH}"
@@ -45,20 +49,15 @@ async def create_order_api_handler(request: web.Request) -> web.Response:
     
     try:
         data = await request.json()
-        logging.info(f"--- Received data from TWA: {data} ---")
+        logging.info(f"--- Received data for order creation: {data} ---")
 
-        user_data = data.get("user")
+        try:
+            order_data = CreateOrderSchema.model_validate(data)
+        except ValidationError as e:
+            logging.error(f"TWA data validation error: {e}")
+            return web.json_response({"status": "error", "message": "Некорректные данные заказа."}, status=400)
 
-        if not user_data or not user_data.get("id"):
-            logging.error("User data or user ID is missing in TWA initData.")
-            return web.json_response(
-                {"status": "error", "message": "Не удалось идентифицировать пользователя. Попробуйте перезапустить бота."},
-                status=400
-            )
-        
-        # --- НАЧАЛО ИСПРАВЛЕНИЯ: Отступы исправлены ---
-        telegram_id = int(user_data["id"])
-
+        telegram_id = order_data.user.id
         dishka_container: AsyncContainer = request.app["dishka_container"]
         
         async with dishka_container(scope=Scope.REQUEST) as request_container:
@@ -66,25 +65,22 @@ async def create_order_api_handler(request: web.Request) -> web.Response:
             order_service = await request_container.get(OrderService)
             
             async with uow.atomic():
-                order = await order_service.create_order(telegram_id=telegram_id)
-
-        await bot.send_message(
-            chat_id=telegram_id,
-            text=(
-                f"✅ Ваш заказ №{order.id} успешно создан!\n\n"
-                f"<b>Получатель:</b> {data.get('full_name')}\n"
-                f"<b>Телефон:</b> {data.get('phone')}\n"
-                f"<b>Адрес:</b> {data.get('address')}\n\n"
-                "В ближайшее время с вами свяжется наш менеджер."
+                order = await order_service.create_order_from_api(
+                telegram_id=telegram_id,
+                items=[item.model_dump() for item in order_data.items],
+                full_name=order_data.full_name,
+                phone=order_data.phone,
+                address=order_data.address,
             )
-        )
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+        # раньше здесь было bot.send_message(...).
+        # Теперь уведомление отправляет сам сервис через INotifier.
 
         return web.json_response({"status": "ok", "order_id": order.id})
 
     except Exception as e:
         logging.error(f"Critical error in create_order_api_handler: {e}", exc_info=True)
-        return web.json_response({"status": "error", "message": "Внутренняя ошибка сервера. Пожалуйста, попробуйте позже."}, status=500)
+        return web.json_response({"status": "error", "message": "Внутренняя ошибка сервера."}, status=500)
 
 def setup_app(
     dishka_container: AsyncContainer, bot: Bot, dispatcher: Dispatcher
@@ -106,14 +102,17 @@ def setup_app(
         )
     })
 
-    app.router.add_static("/static/", path="src/presentation/web/static", name="static")
-    app.router.add_get("/", lambda req: web.FileResponse("src/presentation/web/static/admin.html"))
-    app.router.add_get("/order", lambda req: web.FileResponse("src/presentation/web/static/order_form.html"))
+    # Регистрируем все роуты
+    app.router.add_static("/assets", path="src/presentation/web/static/assets", name="assets")
+    app.router.add_get("/", lambda req: web.FileResponse("src/presentation/web/static/index.html"))
     
-    webhook_route = cors.add(app.router.add_resource(WEBHOOK_PATH))
-    cors.add(webhook_route.add_route("POST", webhook_handler))
+    app.router.add_post(WEBHOOK_PATH, webhook_handler)
+    app.router.add_get("/api/categories", get_categories)
+    app.router.add_post("/api/create_order", create_order_api_handler)
+    app.router.add_get("/api/products", get_products_by_category)
 
-    order_api_route = cors.add(app.router.add_resource("/api/create_order"))
-    cors.add(order_api_route.add_route("POST", create_order_api_handler))
+    # Применяем CORS ко всем зарегистрированным роутам
+    for route in list(app.router.routes()):
+        cors.add(route)
 
     return app

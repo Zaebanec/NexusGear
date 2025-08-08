@@ -1,25 +1,30 @@
-### File: /var/www/nexus-gear-store/src/presentation/web/app.py
-# src/presentation/web/app.py - ВЕРСИЯ, АДАПТИРОВАННАЯ ПОД ЭТАЛОН
+### File: src/presentation/web/app.py
+# /var/www/nexus-gear-store/src/presentation/web/app.py - ФИНАЛЬНАЯ ВЕРСИЯ
 
 from aiohttp import web
 import aiohttp_cors
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
-from dishka.async_container import AsyncContainer
+from dishka import AsyncContainer, Scope
 import logging
 
 from src.infrastructure.config import settings
+from src.application.contracts.persistence.uow import IUnitOfWork
+from src.application.services.order_service import OrderService
+from .api.handlers.category import get_categories
+from .api.handlers.product import get_products_by_category
+from .api.schemas.order import CreateOrderSchema
+from pydantic import ValidationError
 
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{settings.app.base_url}{WEBHOOK_PATH}"
 
 async def on_startup(app: web.Application):
     bot: Bot = app["bot"]
-    # --- ИЗМЕНЕНИЕ: Добавляем secret_token, как в рабочем боте ---
     await bot.set_webhook(
         url=WEBHOOK_URL,
         secret_token=settings.app.secret_token.get_secret_value(),
-        drop_pending_updates=True # Оставим это для чистоты при перезапусках
+        drop_pending_updates=True
     )
     logging.info(f"Webhook установлен на: {WEBHOOK_URL}")
 
@@ -29,7 +34,6 @@ async def on_shutdown(app: web.Application):
     logging.info("Webhook удален.")
 
 async def webhook_handler(request: web.Request) -> web.Response:
-    # --- ИЗМЕНЕНИЕ: Добавляем проверку secret_token, как в рабочем боте ---
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if secret != settings.app.secret_token.get_secret_value():
         logging.warning("Received an update with invalid secret token!")
@@ -40,6 +44,48 @@ async def webhook_handler(request: web.Request) -> web.Response:
     update = Update.model_validate(await request.json(), context={"bot": bot})
     await dispatcher.feed_update(bot=bot, update=update)
     return web.Response()
+
+async def create_order_api_handler(request: web.Request) -> web.Response:
+    bot: Bot = request.app["bot"]
+    
+    try:
+        data = await request.json()
+        logging.info(f"--- Received data for order creation: {data} ---")
+
+        try:
+            order_data = CreateOrderSchema.model_validate(data)
+        except ValidationError as e:
+            logging.error(f"TWA data validation error: {e}")
+            return web.json_response({"status": "error", "message": "Некорректные данные заказа."}, status=400)
+
+        telegram_id = order_data.user.id
+        dishka_container: AsyncContainer = request.app["dishka_container"]
+        
+        async with dishka_container(scope=Scope.REQUEST) as request_container:
+            uow = await request_container.get(IUnitOfWork)
+            order_service = await request_container.get(OrderService)
+            
+            async with uow.atomic():
+                order = await order_service.create_order_from_api(
+                    telegram_id=telegram_id,
+                    items=[item.model_dump() for item in order_data.items]
+                )
+
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=(
+                f"✅ Ваш заказ №{order.id} успешно создан!\n\n"
+                f"<b>Получатель:</b> {order_data.full_name}\n"
+                f"<b>Телефон:</b> {order_data.phone}\n"
+                f"<b>Адрес:</b> {order_data.address}\n\n"
+                "В ближайшее время с вами свяжется наш менеджер."
+            )
+        )
+        return web.json_response({"status": "ok", "order_id": order.id})
+
+    except Exception as e:
+        logging.error(f"Critical error in create_order_api_handler: {e}", exc_info=True)
+        return web.json_response({"status": "error", "message": "Внутренняя ошибка сервера."}, status=500)
 
 def setup_app(
     dishka_container: AsyncContainer, bot: Bot, dispatcher: Dispatcher
@@ -61,61 +107,123 @@ def setup_app(
         )
     })
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Возвращаем старые, правильные пути ---
-    app.router.add_static(
-        "/static/", path="src/presentation/web/static", name="static"
-    )
-    app.router.add_get(
-        "/", lambda req: web.FileResponse("src/presentation/web/static/admin.html")
-    )
-    app.router.add_get(
-        "/order", lambda req: web.FileResponse("src/presentation/web/static/order_form.html")
-    )
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+    # Регистрируем все роуты
+    app.router.add_static("/assets", path="src/presentation/web/static/assets", name="assets")
+    app.router.add_get("/", lambda req: web.FileResponse("src/presentation/web/static/index.html"))
     
-    webhook_route = cors.add(app.router.add_resource(WEBHOOK_PATH))
-    cors.add(webhook_route.add_route("POST", webhook_handler))
+    app.router.add_post(WEBHOOK_PATH, webhook_handler)
+    app.router.add_get("/api/categories", get_categories)
+    app.router.add_post("/api/create_order", create_order_api_handler)
+    app.router.add_get("/api/products", get_products_by_category)
+
+    # Применяем CORS ко всем зарегистрированным роутам
+    for route in list(app.router.routes()):
+        cors.add(route)
 
     return app
+### File: src/presentation/web/api_handlers.py
+# src/presentation/web/api_handlers.py
 
-### File: /var/www/nexus-gear-store/src/static/order_form.js
+import dataclasses
+import logging
+from http import HTTPStatus
+
+from aiohttp import web
+
+from src.application.services.catalog import CategoryService, ProductService
+
+routes = web.RouteTableDef()
 
 
-### File: /var/www/nexus-gear-store/src/application/services/order_service.py
-# src/application/services/order_service.py - ФИНАЛЬНАЯ ВЕРСИЯ
+@routes.get("/api/v1/admin/categories")
+async def get_categories(request: web.Request) -> web.Response:
+    """Возвращает список всех категорий."""
+    try:
+        container = request.app["dishka_container"]
+        service = await container.get(CategoryService)
+        categories = await service.get_all()
+        data = [dataclasses.asdict(c) for c in categories]
+        return web.json_response(data=data, status=HTTPStatus.OK)
+    except Exception as e:
+        logging.exception("Ошибка при получении категорий: %s", e)
+        return web.json_response(
+            {"error": "Internal server error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR
+        )
+
+
+@routes.get("/api/v1/admin/products")
+async def get_products(request: web.Request) -> web.Response:
+    """Возвращает список всех товаров."""
+    try:
+        container = request.app["dishka_container"]
+        service = await container.get(ProductService)
+        products = await service.get_all_products()
+        data = [dataclasses.asdict(p) for p in products]
+        return web.json_response(data=data, status=HTTPStatus.OK)
+    except Exception as e:
+        logging.exception("Ошибка при получении товаров: %s", e)
+        return web.json_response(
+            {"error": "Internal server error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR
+        )
+
+
+@routes.get("/api/v1/admin/products/{product_id}")
+async def get_product_by_id(request: web.Request) -> web.Response:
+    """Возвращает один товар по ID."""
+    try:
+        product_id = int(request.match_info["product_id"])
+        container = request.app["dishka_container"]
+        service = await container.get(ProductService)
+        product = await service.get_by_id(product_id)
+        if not product:
+            return web.json_response(
+                {"error": f"Товар с ID {product_id} не найден"},
+                status=HTTPStatus.NOT_FOUND
+            )
+        return web.json_response(data=dataclasses.asdict(product), status=HTTPStatus.OK)
+    except ValueError:
+        return web.json_response(
+            {"error": "Некорректный ID товара"},
+            status=HTTPStatus.BAD_REQUEST
+        )
+    except Exception as e:
+        logging.exception("Ошибка при получении товара: %s", e)
+        return web.json_response(
+            {"error": "Internal server error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR
+        )
+
+### File: src/application/services/order_service.py
+# src/application/services/order_service.py - НОВАЯ ВЕРСИЯ
 
 from decimal import Decimal
+from typing import List, Dict
 
-from src.application.contracts.cart.cart_repository import ICartRepository
 from src.application.contracts.persistence.uow import IUnitOfWork
 from src.domain.entities.order import Order, OrderStatus
 from src.domain.entities.order_item import OrderItem
 
 class OrderService:
-    def __init__(self, uow: IUnitOfWork, cart_repo: ICartRepository):
+    # --- ИЗМЕНЕНИЕ: Убираем зависимость от ICartRepository ---
+    def __init__(self, uow: IUnitOfWork):
         self.uow = uow
-        self.cart_repo = cart_repo
 
-    # --- ИЗМЕНЕНИЕ 1: Метод теперь принимает telegram_id, а не абстрактный user_id ---
-    async def create_order(self, telegram_id: int) -> Order:
-        # --- ИЗМЕНЕНИЕ 2: Сервис сам находит пользователя в рамках своей транзакции ---
-        # Это делает сервис более надежным и самодостаточным.
+    # --- ИЗМЕНЕНИЕ: Метод теперь принимает список товаров ---
+    async def create_order_from_api(self, telegram_id: int, items: List[Dict]) -> Order:
         user = await self.uow.users.get_by_telegram_id(telegram_id)
         if not user:
-            # Этот код никогда не должен выполниться, если /start работает,
-            # но это хорошая защитная мера.
-            raise ValueError(f"Попытка создать заказ для несуществующего пользователя: {telegram_id}")
+            raise ValueError(f"Пользователь с telegram_id {telegram_id} не найден.")
 
-        cart_items = await self.cart_repo.get_by_user_id(telegram_id)
-        if not cart_items:
-            raise ValueError("Корзина пуста. Невозможно создать заказ.")
+        # ВАЖНО: Здесь должна быть логика проверки цен и наличия товаров.
+        # Мы должны получить каждый product_id из `items`, сходить в self.uow.products
+        # и взять актуальную цену из БД, чтобы избежать подделки.
+        # Для MVP мы опускаем этот шаг и доверяем данным.
+        
+        # Для примера, пока что не будем считать total_amount
+        total_amount = Decimal("0.0") # В реальном проекте здесь будет расчет
 
-        total_amount = sum(item.price * item.quantity for item in cart_items)
-
-        # --- ИЗМЕНЕНИЕ 3: Мы используем user.id (внутренний PK), а не telegram_id ---
         order_entity = Order(
             id=0,
-            user_id=user.id, # <--- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+            user_id=user.id,
             status=OrderStatus.PENDING,
             total_amount=total_amount,
         )
@@ -124,14 +232,585 @@ class OrderService:
             OrderItem(
                 id=0,
                 order=order_entity,
-                product_id=item.product_id,
-                quantity=item.quantity,
-                price_at_purchase=item.price
-            ) for item in cart_items
+                product_id=item["product_id"],
+                quantity=item["quantity"],
+                # Цена должна браться из БД, а не из запроса
+                price_at_purchase=Decimal("0.0") 
+            ) for item in items
         ]
         
         await self.uow.orders.create(order_entity)
         
-        await self.cart_repo.clear_by_user_id(telegram_id)
-
         return order_entity
+### File: src/application/contracts/order/__init__.py
+
+### File: src/application/contracts/order/create_order.py
+
+### File: src/application/interfaces/repositories/__init__.py
+
+### File: src/application/interfaces/repositories/order.py
+
+### File: src/application/interfaces/repositories/product.py
+
+### File: src/application/interfaces/repositories/user.py
+
+### File: src/domain/entities/order.py
+# src/domain/entities/order.py
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+from datetime import datetime
+from decimal import Decimal
+from enum import Enum
+from typing import TYPE_CHECKING
+
+# Избегаем циклического импорта
+if TYPE_CHECKING:
+    from .order_item import OrderItem
+
+
+class OrderStatus(Enum):
+    """Статусы заказа."""
+    PENDING = "pending"
+    PAID = "paid"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class Order:
+    """Доменная сущность 'Заказ'."""
+    id: int
+    user_id: int
+    status: OrderStatus
+    total_amount: Decimal
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+    # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Добавляем коллекцию для связанных позиций ---
+    # SQLAlchemy будет использовать это поле для заполнения связанных объектов
+    # при загрузке заказа из БД, если настроен relationship.
+    # default_factory=list гарантирует, что поле будет пустым списком,
+    # а не общим изменяемым объектом для всех экземпляров Order.
+    items: list[OrderItem] = field(default_factory=list, repr=False)
+### File: src/domain/entities/order_item.py
+# src/domain/entities/order_item.py
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import TYPE_CHECKING
+
+# Используем TYPE_CHECKING для избежания циклического импорта во время выполнения
+if TYPE_CHECKING:
+    from .order import Order
+
+
+@dataclass
+class OrderItem:
+    """Доменная сущность 'Позиция в заказе'."""
+    id: int
+    product_id: int
+    quantity: int
+    price_at_purchase: Decimal
+
+    # --- КЛЮЧЕВЫЕ ИЗМЕНЕНИЯ ---
+    # 1. Добавляем поле для хранения объекта Order.
+    #    Используем строковый тип "Order" (forward reference) для избежания
+    #    циклического импорта с order.py.
+    #    repr=False, чтобы избежать бесконечной рекурсии при отладке.
+    order: "Order" = field(repr=False)
+
+    # 2. Поле order_id теперь опционально и вычисляемо.
+    #    init=False означает, что его не нужно передавать в конструктор.
+    order_id: int = field(init=False)
+
+    # 3. __post_init__ - это специальный метод dataclass, который вызывается
+    #    сразу после __init__. Мы используем его, чтобы синхронизировать
+    #    order_id из переданного объекта order.
+    def __post_init__(self):
+        self.order_id = self.order.id
+### File: src/domain/entities/cart_item.py
+from dataclasses import dataclass
+from decimal import Decimal
+
+@dataclass
+class CartItem:
+    """Представляет товар в корзине пользователя."""
+    product_id: int
+    name: str
+    price: Decimal
+    quantity: int
+### File: src/domain/entities/product.py
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
+
+
+@dataclass
+class Product:
+    """
+    Доменная сущность 'Товар'.
+
+    Представляет товар, доступный для покупки в магазине.
+    """
+    id: int
+    name: str
+    description: str
+    price: Decimal
+    category_id: int
+    created_at: datetime
+
+### File: src/domain/entities/user.py
+# src/domain/entities/user.py - ФИНАЛЬНАЯ ВЕРСИЯ
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional
+
+
+@dataclass
+class User:
+    """
+    Доменная сущность 'Пользователь'.
+
+    Представляет пользователя системы, взаимодействующего с ботом.
+    """
+    id: int
+    telegram_id: int
+    full_name: str
+    username: Optional[str]
+
+    # --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Автоматическая установка времени создания ---
+    # Мы используем default_factory, чтобы datetime.utcnow вызывался
+    # каждый раз при создании нового экземпляра.
+    # Использование UTC - лучшая практика для серверного времени.
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+### File: src/infrastructure/database/models/__init__.py
+# Этот файл нужен, чтобы Alembic мог автоматически обнаруживать
+# наши модели при генерации миграций.
+
+from .base import Base
+from .category import Category
+from .order import Order
+from .order_item import OrderItem
+from .product import Product
+from .user import User
+
+__all__ = ["Base", "User", "Category", "Product", "Order", "OrderItem"]
+### File: src/infrastructure/database/models/order.py
+from datetime import datetime
+from decimal import Decimal
+# --- НАЧАЛО ИЗМЕНЕНИЙ ---
+from sqlalchemy import BigInteger, Enum as SAEnum, ForeignKey, Numeric, func
+# --- КОНЕЦ ИЗМЕНЕНИЙ ---
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from src.domain.entities.order import OrderStatus
+from .base import Base
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    # Меняем тип на BigInteger, чтобы вместить большие Telegram User ID
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus), default=OrderStatus.PENDING)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+
+    items: Mapped[list["OrderItem"]] = relationship(back_populates="order")
+### File: src/infrastructure/database/models/order_item.py
+from decimal import Decimal
+from sqlalchemy import ForeignKey, Numeric
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from src.domain.entities.order import Order
+
+from .base import Base
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    quantity: Mapped[int]
+    price_at_purchase: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+
+    # Отношение обратно к заказу
+    order: Mapped["Order"] = relationship(back_populates="items")
+### File: src/infrastructure/database/repositories/order_repository.py
+from sqlalchemy import insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.application.contracts.order.order_repository import (
+    IOrderItemRepository,
+    IOrderRepository,
+)
+from src.domain.entities.order import Order as DomainOrder
+from src.domain.entities.order_item import OrderItem as DomainOrderItem
+from src.infrastructure.database.models import Order as DbOrder
+from src.infrastructure.database.models import OrderItem as DbOrderItem
+
+# ... (здесь должны быть мапперы, но для краткости опустим)
+
+class OrderRepository(IOrderRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, order: DomainOrder) -> DomainOrder:
+        db_order = DbOrder(
+            user_id=order.user_id,
+            status=order.status,
+            total_amount=order.total_amount,
+        )
+        self.session.add(db_order)
+        await self.session.flush([db_order])
+        order.id = db_order.id # Обновляем ID в доменной сущности
+        return order
+
+    async def get_by_id(self, order_id: int) -> DomainOrder | None:
+        # ... реализация получения заказа ...
+        return None
+
+class OrderItemRepository(IOrderItemRepository):
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create_items(self, items: list[DomainOrderItem]) -> None:
+        db_items = [
+            DbOrderItem(
+                order_id=item.order_id,
+                product_id=item.product_id,
+                quantity=item.quantity,
+                price_at_purchase=item.price_at_purchase,
+            )
+            for item in items
+        ]
+        self.session.add_all(db_items)
+### File: src/infrastructure/database/repositories/product_repository.py
+# src/infrastructure/database/repositories/product_repository.py - ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.application.interfaces.repositories.product_repository import (
+    IProductRepository,
+)
+from src.domain.entities.product import Product as DomainProduct
+from src.infrastructure.database.models.product import Product as DbProduct
+
+
+def _to_domain_product(db_product: DbProduct) -> DomainProduct:
+    """Маппер для преобразования модели БД в доменную сущность."""
+    return DomainProduct(
+        id=db_product.id,
+        name=db_product.name,
+        description=db_product.description,
+        price=db_product.price,
+        category_id=db_product.category_id,
+        created_at=db_product.created_at,
+    )
+
+
+class ProductRepository(IProductRepository):
+    """
+
+    Реализация репозитория для товаров.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_id(self, product_id: int) -> DomainProduct | None:
+        stmt = select(DbProduct).where(DbProduct.id == product_id)
+        db_product = await self.session.scalar(stmt)
+        return _to_domain_product(db_product) if db_product else None
+
+    async def get_by_category_id(self, category_id: int) -> list[DomainProduct]:
+        stmt = select(DbProduct).where(DbProduct.category_id == category_id)
+        result = await self.session.scalars(stmt)
+        return [_to_domain_product(p) for p in result.all()]
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Добавляем реализацию недостающего метода ---
+    async def get_all(self) -> list[DomainProduct]:
+        """Возвращает все товары из базы данных."""
+        stmt = select(DbProduct).order_by(DbProduct.id)
+        result = await self.session.scalars(stmt)
+        return [_to_domain_product(p) for p in result.all()]
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+### File: src/infrastructure/database/repositories/user_repository.py
+# src/infrastructure/database/repositories/user_repository.py
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.application.interfaces.repositories.user_repository import IUserRepository
+from src.domain.entities.user import User as DomainUser
+from src.infrastructure.database.models.user import User as DbUser
+
+
+def _to_domain_user(db_user: DbUser) -> DomainUser:
+    """Маппер для преобразования модели БД в доменную сущность."""
+    return DomainUser(
+        id=db_user.id,
+        telegram_id=db_user.telegram_id,
+        full_name=db_user.full_name,
+        username=db_user.username,
+        created_at=db_user.created_at,
+    )
+
+
+class UserRepository(IUserRepository):
+    """
+    Реализация репозитория для пользователей, работающая с PostgreSQL через SQLAlchemy.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_id(self, user_id: int) -> DomainUser | None:
+        stmt = select(DbUser).where(DbUser.id == user_id)
+        db_user = await self.session.scalar(stmt)
+        return _to_domain_user(db_user) if db_user else None
+
+    async def get_by_telegram_id(self, telegram_id: int) -> DomainUser | None:
+        stmt = select(DbUser).where(DbUser.telegram_id == telegram_id)
+        db_user = await self.session.scalar(stmt)
+        return _to_domain_user(db_user) if db_user else None
+
+    async def add(self, user: DomainUser) -> DomainUser:
+        """
+        Добавляет нового пользователя в сессию, выполняет flush для получения ID
+        и возвращает актуальную доменную сущность.
+        """
+        db_user = DbUser(
+            telegram_id=user.telegram_id,
+            full_name=user.full_name,
+            username=user.username,
+        )
+        self.session.add(db_user)
+        # Принудительно отправляем запрос в БД, чтобы сгенерировался ID
+        await self.session.flush()
+        # Обновляем объект из БД, чтобы получить все поля (например, created_at)
+        await self.session.refresh(db_user)
+        # Возвращаем доменную сущность с реальными данными из БД
+        return _to_domain_user(db_user)
+### File: src/infrastructure/database/uow.py
+# src/infrastructure/database/uow.py - ПОЛНАЯ ВЕРСИЯ
+
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.application.contracts.order.order_repository import IOrderRepository
+from src.application.interfaces.repositories.user_repository import IUserRepository
+from src.application.contracts.persistence.uow import IUnitOfWork
+
+from src.infrastructure.database.repositories.order_repository import OrderRepository
+from src.infrastructure.database.repositories.user_repository import UserRepository
+
+
+class UnitOfWork(IUnitOfWork):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+        
+        self.orders: IOrderRepository = OrderRepository(self._session)
+        # --- ИЗМЕНЕНИЕ: Добавляем недостающий репозиторий пользователей ---
+        self.users: IUserRepository = UserRepository(self._session)
+
+    @asynccontextmanager
+    async def atomic(self):
+        async with self._session.begin():
+            yield
+### File: src/infrastructure/di/providers.py
+# src/infrastructure/di/providers.py - ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
+
+from typing import AsyncGenerator
+
+from dishka import Provider, Scope, provide
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+# --- Импорты Контрактов ---
+from src.application.contracts.cart.cart_repository import ICartRepository
+from src.application.contracts.persistence.uow import IUnitOfWork
+from src.application.interfaces.repositories.category_repository import ICategoryRepository
+from src.application.interfaces.repositories.product_repository import IProductRepository
+from src.application.interfaces.repositories.user_repository import IUserRepository
+
+# --- Импорты Сервисов ---
+from src.application.services.ai_consultant import AIConsultantService
+from src.application.services.catalog import CategoryService, ProductService
+from src.application.services.order_service import OrderService
+from src.application.services.user_service import UserService
+
+# --- Импорты Реализаций ---
+from src.infrastructure.config import Settings, settings
+from src.infrastructure.ai.gemini_client import GeminiClient
+from src.infrastructure.database.repositories.category_repository import CategoryRepository
+from src.infrastructure.database.repositories.product_repository import ProductRepository
+from src.infrastructure.database.repositories.user_repository import UserRepository
+from src.infrastructure.database.uow import UnitOfWork
+from src.infrastructure.memory.cart_repository import InMemoryCartRepository
+
+
+class ConfigProvider(Provider):
+    scope = Scope.APP
+    @provide
+    def get_config(self) -> Settings:
+        return settings
+
+class DbProvider(Provider):
+    scope = Scope.APP
+    @provide
+    def get_engine(self, config: Settings) -> AsyncEngine:
+        return create_async_engine(url=config.db.url)
+
+    @provide
+    def get_session_factory(
+        self, engine: AsyncEngine
+    ) -> async_sessionmaker[AsyncSession]:
+        return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    @provide(scope=Scope.REQUEST)
+    async def get_session(
+        self, session_factory: async_sessionmaker[AsyncSession]
+    ) -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            yield session
+
+class MemoryProvider(Provider):
+    scope = Scope.APP
+    @provide(scope=Scope.APP)
+    def get_cart_repo(self) -> ICartRepository:
+        return InMemoryCartRepository()
+
+class RepoProvider(Provider):
+    scope = Scope.REQUEST
+
+    @provide
+    def get_user_repo(self, session: AsyncSession) -> IUserRepository:
+        return UserRepository(session)
+
+    @provide
+    def get_category_repo(self, session: AsyncSession) -> ICategoryRepository:
+        return CategoryRepository(session)
+
+    @provide
+    def get_product_repo(self, session: AsyncSession) -> IProductRepository:
+        return ProductRepository(session)
+        
+    @provide
+    def get_uow(self, session: AsyncSession) -> IUnitOfWork:
+        return UnitOfWork(session)
+
+class AIProvider(Provider):
+    scope = Scope.APP
+
+    @provide
+    def get_gemini_client(self, config: Settings) -> GeminiClient:
+        return GeminiClient(settings=config)
+    
+class ServiceProvider(Provider):
+    scope = Scope.REQUEST
+
+    @provide
+    def get_category_service(
+        self, category_repo: ICategoryRepository
+    ) -> CategoryService:
+        return CategoryService(category_repo)
+
+    @provide
+    def get_product_service(
+        self,
+        product_repo: IProductRepository,
+        category_repo: ICategoryRepository,
+    ) -> ProductService:
+        return ProductService(product_repo, category_repo)
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+    @provide
+    def get_order_service(self, uow: IUnitOfWork) -> OrderService:
+        return OrderService(uow)
+
+    @provide
+    def get_user_service(self, uow: IUnitOfWork) -> UserService:
+        return UserService(uow)
+    
+    @provide
+    def get_ai_consultant_service(
+        self,
+        gemini_client: GeminiClient,
+        product_repo: IProductRepository,
+    ) -> AIConsultantService:
+        return AIConsultantService(gemini_client, product_repo)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+### File: src/infrastructure/config.py
+# src/infrastructure/config.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+
+from pydantic import SecretStr, computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class BotSettings(BaseSettings):
+    """Настройки для Telegram бота."""
+    token: SecretStr
+
+
+class DBSettings(BaseSettings):
+    """Настройки для подключения к базе данных."""
+    host: str
+    port: int
+    user: str
+    password: SecretStr
+    name: str
+
+    @computed_field
+    @property
+    def url(self) -> str:
+        """Формирует URL для асинхронного подключения к PostgreSQL."""
+        return (
+            f"postgresql+asyncpg://"
+            f"{self.user}:{self.password.get_secret_value()}"
+            f"@{self.host}:{self.port}/{self.name}"
+        )
+
+
+class AppSettings(BaseSettings):
+    """Настройки для веб-приложения (TWA, API)."""
+    base_url: str
+    secret_token: SecretStr
+
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+class GeminiSettings(BaseSettings):
+    """Настройки для Google Gemini API."""
+    api_key: SecretStr
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+
+class Settings(BaseSettings):
+    """Основной класс настроек, объединяющий все остальные."""
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_nested_delimiter='__'
+    )
+
+    bot: BotSettings
+    db: DBSettings
+    app: AppSettings
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+    gemini: GeminiSettings
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+
+# Создаем единственный экземпляр настроек
+settings = Settings()

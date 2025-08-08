@@ -1,4 +1,6 @@
-from sqlalchemy import insert, select
+# src/infrastructure/database/repositories/order_repository.py
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.order.order_repository import (
@@ -10,7 +12,14 @@ from src.domain.entities.order_item import OrderItem as DomainOrderItem
 from src.infrastructure.database.models import Order as DbOrder
 from src.infrastructure.database.models import OrderItem as DbOrderItem
 
-# ... (здесь должны быть мапперы, но для краткости опустим)
+def _to_domain_order(db: DbOrder) -> DomainOrder:
+    # Простейший маппер без загрузки items (при необходимости — дополним)
+    return DomainOrder(
+        id=db.id,
+        user_id=db.user_id,
+        status=db.status,
+        total_amount=db.total_amount,
+    )
 
 class OrderRepository(IOrderRepository):
     def __init__(self, session: AsyncSession):
@@ -24,12 +33,13 @@ class OrderRepository(IOrderRepository):
         )
         self.session.add(db_order)
         await self.session.flush([db_order])
-        order.id = db_order.id # Обновляем ID в доменной сущности
+        order.id = db_order.id
         return order
 
     async def get_by_id(self, order_id: int) -> DomainOrder | None:
-        # ... реализация получения заказа ...
-        return None
+        stmt = select(DbOrder).where(DbOrder.id == order_id)
+        db_order = await self.session.scalar(stmt)
+        return _to_domain_order(db_order) if db_order else None
 
 class OrderItemRepository(IOrderItemRepository):
     def __init__(self, session: AsyncSession):
@@ -38,11 +48,12 @@ class OrderItemRepository(IOrderItemRepository):
     async def create_items(self, items: list[DomainOrderItem]) -> None:
         db_items = [
             DbOrderItem(
-                order_id=item.order_id,
-                product_id=item.product_id,
-                quantity=item.quantity,
-                price_at_purchase=item.price_at_purchase,
+                order_id=i.order_id,
+                product_id=i.product_id,
+                quantity=i.quantity,
+                price_at_purchase=i.price_at_purchase,
             )
-            for item in items
+            for i in items
         ]
         self.session.add_all(db_items)
+        # flush не обязателен здесь, транзакция закроется в UoW.atomic()

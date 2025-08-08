@@ -1,53 +1,86 @@
-# src/application/services/order_service.py - ФИНАЛЬНАЯ ВЕРСИЯ
+# src/application/services/order_service.py - ФИНАЛ v2 (с уведомлением)
 
 from decimal import Decimal
+from typing import List, Dict, Optional
 
-from src.application.contracts.cart.cart_repository import ICartRepository
+from src.application.contracts.notifications.notifier import INotifier
 from src.application.contracts.persistence.uow import IUnitOfWork
 from src.domain.entities.order import Order, OrderStatus
 from src.domain.entities.order_item import OrderItem
 
 class OrderService:
-    def __init__(self, uow: IUnitOfWork, cart_repo: ICartRepository):
+    def __init__(self, uow: IUnitOfWork, notifier: INotifier):
         self.uow = uow
-        self.cart_repo = cart_repo
+        self.notifier = notifier
 
-    # --- ИЗМЕНЕНИЕ 1: Метод теперь принимает telegram_id, а не абстрактный user_id ---
-    async def create_order(self, telegram_id: int) -> Order:
-        # --- ИЗМЕНЕНИЕ 2: Сервис сам находит пользователя в рамках своей транзакции ---
-        # Это делает сервис более надежным и самодостаточным.
+    async def create_order_from_api(
+        self,
+        telegram_id: int,
+        items: List[Dict],
+        *,
+        full_name: Optional[str] = None,
+        phone: Optional[str] = None,
+        address: Optional[str] = None,
+    ) -> Order:
+        """
+        items: [{ "product_id": int, "quantity": int }, ...]
+        """
         user = await self.uow.users.get_by_telegram_id(telegram_id)
         if not user:
-            # Этот код никогда не должен выполниться, если /start работает,
-            # но это хорошая защитная мера.
-            raise ValueError(f"Попытка создать заказ для несуществующего пользователя: {telegram_id}")
+            raise ValueError(f"Пользователь с telegram_id {telegram_id} не найден.")
+        if not items:
+            raise ValueError("Список товаров пуст.")
 
-        cart_items = await self.cart_repo.get_by_user_id(telegram_id)
-        if not cart_items:
-            raise ValueError("Корзина пуста. Невозможно создать заказ.")
+        domain_items: list[OrderItem] = []
+        total = Decimal("0.00")
 
-        total_amount = sum(item.price * item.quantity for item in cart_items)
+        for raw in items:
+            product_id = int(raw["product_id"])
+            qty = int(raw["quantity"])
+            if qty <= 0:
+                raise ValueError(f"Некорректное количество для product_id={product_id}")
 
-        # --- ИЗМЕНЕНИЕ 3: Мы используем user.id (внутренний PK), а не telegram_id ---
-        order_entity = Order(
+            product = await self.uow.products.get_by_id(product_id)
+            if not product:
+                raise ValueError(f"Товар {product_id} не найден.")
+
+            price = product.price
+            total += price * qty
+
+            domain_items.append(
+                OrderItem(
+                    id=0,
+                    order=None,  # установим после создания заказа
+                    product_id=product_id,
+                    quantity=qty,
+                    price_at_purchase=price,
+                )
+            )
+
+        order = Order(
             id=0,
-            user_id=user.id, # <--- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+            user_id=user.id,
             status=OrderStatus.PENDING,
-            total_amount=total_amount,
+            total_amount=total,
         )
 
-        order_entity.items = [
-            OrderItem(
-                id=0,
-                order=order_entity,
-                product_id=item.product_id,
-                quantity=item.quantity,
-                price_at_purchase=item.price
-            ) for item in cart_items
-        ]
-        
-        await self.uow.orders.create(order_entity)
-        
-        await self.cart_repo.clear_by_user_id(telegram_id)
+        # Сохранение в транзакции осуществляется снаружи (uow.atomic())
+        order = await self.uow.orders.create(order)
 
-        return order_entity
+        for it in domain_items:
+            it.order = order
+            it.__post_init__()  # синхронизируем order_id
+
+        await self.uow.order_items.create_items(domain_items)
+        order.items = domain_items
+
+        # Важно: уведомление вне DB flush'ей — после успешного создания
+        await self.notifier.notify_order_created(
+            telegram_id=telegram_id,
+            order=order,
+            full_name=full_name,
+            phone=phone,
+            address=address,
+        )
+
+        return order

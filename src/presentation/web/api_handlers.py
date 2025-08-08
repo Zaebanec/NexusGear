@@ -1,3 +1,5 @@
+# src/presentation/web/api_handlers.py
+
 import dataclasses
 import logging
 from http import HTTPStatus
@@ -16,7 +18,6 @@ async def get_categories(request: web.Request) -> web.Response:
         container = request.app["dishka_container"]
         service = await container.get(CategoryService)
         categories = await service.get_all()
-        # Сериализуем dataclass'ы в словари для JSON-ответа
         data = [dataclasses.asdict(c) for c in categories]
         return web.json_response(data=data, status=HTTPStatus.OK)
     except Exception as e:
@@ -32,14 +33,37 @@ async def get_products(request: web.Request) -> web.Response:
     try:
         container = request.app["dishka_container"]
         service = await container.get(ProductService)
-        # ПРИМЕЧАНИЕ: Метод get_all_products() еще не определен.
-        # Мы добавим его в сервисы и репозитории.
-        # Пока что представим, что он существует.
         products = await service.get_all_products()
         data = [dataclasses.asdict(p) for p in products]
         return web.json_response(data=data, status=HTTPStatus.OK)
     except Exception as e:
         logging.exception("Ошибка при получении товаров: %s", e)
+        return web.json_response(
+            {"error": "Internal server error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR
+        )
+
+
+@routes.get("/api/v1/admin/products/{product_id}")
+async def get_product_by_id(request: web.Request) -> web.Response:
+    """Возвращает один товар по ID."""
+    try:
+        product_id = int(request.match_info["product_id"])
+        container = request.app["dishka_container"]
+        service = await container.get(ProductService)
+        product = await service.get_by_id(product_id)
+        if not product:
+            return web.json_response(
+                {"error": f"Товар с ID {product_id} не найден"},
+                status=HTTPStatus.NOT_FOUND
+            )
+        return web.json_response(data=dataclasses.asdict(product), status=HTTPStatus.OK)
+    except ValueError:
+        return web.json_response(
+            {"error": "Некорректный ID товара"},
+            status=HTTPStatus.BAD_REQUEST
+        )
+    except Exception as e:
+        logging.exception("Ошибка при получении товара: %s", e)
         return web.json_response(
             {"error": "Internal server error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR
         )

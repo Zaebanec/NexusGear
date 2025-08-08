@@ -1,3 +1,5 @@
+# src/infrastructure/database/repositories/product_repository.py - ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,7 @@ def _to_domain_product(db_product: DbProduct) -> DomainProduct:
 
 class ProductRepository(IProductRepository):
     """
+
     Реализация репозитория для товаров.
     """
 
@@ -33,8 +36,15 @@ class ProductRepository(IProductRepository):
         db_product = await self.session.scalar(stmt)
         return _to_domain_product(db_product) if db_product else None
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
     async def get_by_category_id(self, category_id: int) -> list[DomainProduct]:
         stmt = select(DbProduct).where(DbProduct.category_id == category_id)
         result = await self.session.scalars(stmt)
         return [_to_domain_product(p) for p in result.all()]
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Добавляем реализацию недостающего метода ---
+    async def get_all(self) -> list[DomainProduct]:
+        """Возвращает все товары из базы данных."""
+        stmt = select(DbProduct).order_by(DbProduct.id)
+        result = await self.session.scalars(stmt)
+        return [_to_domain_product(p) for p in result.all()]
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---

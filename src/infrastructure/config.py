@@ -2,11 +2,12 @@
 
 from pydantic import SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import SecretStr
+
 
 class BotSettings(BaseSettings):
     """Настройки для Telegram бота."""
     token: SecretStr
+
 
 class DBSettings(BaseSettings):
     """Настройки для подключения к базе данных."""
@@ -26,11 +27,16 @@ class DBSettings(BaseSettings):
             f"@{self.host}:{self.port}/{self.name}"
         )
 
-# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+
 class AppSettings(BaseSettings):
     """Настройки для веб-приложения (TWA, API)."""
     base_url: str
     secret_token: SecretStr
+
+# --- НАЧАЛО ИЗМЕНЕНИЯ ---
+class GeminiSettings(BaseSettings):
+    """Настройки для Google Gemini API."""
+    api_key: SecretStr
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 
@@ -39,13 +45,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        env_nested_delimiter='__' # Используем двойное подчеркивание для вложенности
+        env_nested_delimiter='__'
     )
 
     bot: BotSettings
     db: DBSettings
-    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
     app: AppSettings
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+    gemini: GeminiSettings
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 

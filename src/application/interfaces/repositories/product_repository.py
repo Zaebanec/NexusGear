@@ -1,3 +1,5 @@
+# src/application/interfaces/repositories/product_repository.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+
 from abc import ABC, abstractmethod
 
 from src.domain.entities.product import Product
@@ -15,3 +17,10 @@ class IProductRepository(ABC):
     @abstractmethod
     async def get_by_category_id(self, category_id: int) -> list[Product]:
         raise NotImplementedError
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+    @abstractmethod
+    async def get_all(self) -> list[Product]:
+        """Возвращает все товары."""
+        raise NotImplementedError
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---

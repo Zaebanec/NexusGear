@@ -1,31 +1,24 @@
-# src/presentation/handlers/common.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# src/presentation/handlers/common.py - ФИНАЛЬНАЯ ВЕРСИЯ
 
 from aiogram import Router
 from aiogram.filters import CommandStart
-from aiogram.types import Message
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
-from dishka import AsyncContainer, Scope  # <-- Импортируем AsyncContainer
+from aiogram.types import Message, WebAppInfo
+from aiogram.utils.keyboard import InlineKeyboardBuilder # <-- Изменяем импорт
+from dishka import AsyncContainer, Scope
 
 from src.application.services.user_service import UserService
+from src.infrastructure.config import settings
 
 common_router = Router()
 
-def get_main_menu_keyboard():
-    builder = ReplyKeyboardBuilder()
-    builder.button(text="🛍️ Каталог")
-    builder.button(text="🛒 Корзина")
-    builder.adjust(2)
-    return builder.as_markup(resize_keyboard=True)
-
+# ReplyKeyboardBuilder и get_main_menu_keyboard() больше не нужны
 
 @common_router.message(CommandStart())
-async def start_handler(message: Message, dishka_container: AsyncContainer): # <-- ИЗМЕНЕНИЕ
+async def start_handler(message: Message, dishka_container: AsyncContainer):
     """
     Обработчик команды /start. Регистрирует пользователя и отправляет
-    приветственное сообщение с клавиатурой главного меню.
+    приветственное сообщение с кнопкой для открытия магазина (TWA на Vue).
     """
-    # --- ИЗМЕНЕНИЕ: Убираем получение container из dispatcher ---
-    # async with dishka_container(...) теперь является стандартным паттерном
     async with dishka_container(scope=Scope.REQUEST) as request_container:
         user_service = await request_container.get(UserService)
         await user_service.register_user_if_not_exists(
@@ -34,7 +27,17 @@ async def start_handler(message: Message, dishka_container: AsyncContainer): # <
             username=message.from_user.username,
         )
     
+    # --- НАЧАЛО ИСПРАВЛЕНИЯ: Создаем инлайн-кнопку для открытия Vue App ---
+    builder = InlineKeyboardBuilder()
+    # Ссылка теперь ведет на корень сайта, где будет наше Vue-приложение
+    web_app_url = f"{settings.app.base_url}/" 
+    builder.button(
+        text="🛍️ Открыть магазин", 
+        web_app=WebAppInfo(url=web_app_url)
+    )
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
     await message.answer(
         f"Добро пожаловать в NEXUS Gear, {message.from_user.full_name}!",
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=builder.as_markup(),
     )

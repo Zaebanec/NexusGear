@@ -1,3 +1,5 @@
+# src/application/services/catalog.py - ОБНОВЛЁННАЯ ВЕРСИЯ
+
 from datetime import datetime
 from decimal import Decimal
 
@@ -34,11 +36,16 @@ class ProductService:
         self.product_repo = product_repo
         self.category_repo = category_repo
 
-    # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-    # Эта функция теперь имеет правильный отступ
+    async def get_all_products(self) -> list[Product]:
+        """Возвращает все товары."""
+        return await self.product_repo.get_all()
+
     async def get_by_category(self, category_id: int) -> list[Product]:
         return await self.product_repo.get_by_category_id(category_id)
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+    async def get_by_id(self, product_id: int) -> Product | None:
+        """Возвращает один товар по его ID."""
+        return await self.product_repo.get_by_id(product_id)
 
     async def create_product(
         self,
