@@ -3,15 +3,50 @@
 from decimal import Decimal
 from typing import List, Dict, Optional
 
+from src.application.contracts.cart.cart_repository import ICartRepository
 from src.application.contracts.notifications.notifier import INotifier
 from src.application.contracts.persistence.uow import IUnitOfWork
 from src.domain.entities.order import Order, OrderStatus
 from src.domain.entities.order_item import OrderItem
 
+
 class OrderService:
-    def __init__(self, uow: IUnitOfWork, notifier: INotifier):
+    def __init__(
+        self,
+        uow: IUnitOfWork,
+        cart_repo: Optional[ICartRepository] = None,
+        notifier: Optional[INotifier] = None,
+    ):
         self.uow = uow
+        self.cart_repo = cart_repo
         self.notifier = notifier
+
+    async def create_order(self, telegram_id: int) -> Order:
+        """Создает заказ на основе содержимого корзины пользователя."""
+        user = await self.uow.users.get_by_telegram_id(telegram_id)
+        if not user:
+            raise ValueError(f"Пользователь с telegram_id {telegram_id} не найден.")
+
+        if not self.cart_repo:
+            raise ValueError("Cart repository is not configured")
+
+        cart_items = await self.cart_repo.get_by_user_id(telegram_id)
+        if not cart_items:
+            raise ValueError("Корзина пуста")
+
+        total = sum(item.price * item.quantity for item in cart_items)
+
+        order = Order(
+            id=0,
+            user_id=user.id,
+            status=OrderStatus.PENDING,
+            total_amount=total,
+        )
+
+        await self.uow.orders.create(order)
+        await self.cart_repo.clear_by_user_id(telegram_id)
+
+        return order
 
     async def create_order_from_api(
         self,
