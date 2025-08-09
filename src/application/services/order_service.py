@@ -1,4 +1,4 @@
-# src/application/services/order_service.py - ФИНАЛ v2 (с уведомлением)
+# src/application/services/order_service.py — финальная версия (вариант 1)
 
 from decimal import Decimal
 from typing import List, Dict, Optional
@@ -58,16 +58,28 @@ class OrderService:
         address: Optional[str] = None,
     ) -> Order:
         """
+        Создание заказа из REST API.
         items: [{ "product_id": int, "quantity": int }, ...]
         """
         user = await self.uow.users.get_by_telegram_id(telegram_id)
         if not user:
             raise ValueError(f"Пользователь с telegram_id {telegram_id} не найден.")
+
         if not items:
             raise ValueError("Список товаров пуст.")
 
-        domain_items: list[OrderItem] = []
         total = Decimal("0.00")
+
+        # Создаём заказ сразу, без позиций
+        order = Order(
+            id=0,
+            user_id=user.id,
+            status=OrderStatus.PENDING,
+            total_amount=total,
+        )
+        order = await self.uow.orders.create(order)
+
+        domain_items: list[OrderItem] = []
 
         for raw in items:
             product_id = int(raw["product_id"])
@@ -85,37 +97,27 @@ class OrderService:
             domain_items.append(
                 OrderItem(
                     id=0,
-                    order=None,  # установим после создания заказа
+                    order=order,  # передаём сразу, чтобы __post_init__ не падал
                     product_id=product_id,
                     quantity=qty,
                     price_at_purchase=price,
                 )
             )
 
-        order = Order(
-            id=0,
-            user_id=user.id,
-            status=OrderStatus.PENDING,
-            total_amount=total,
-        )
-
-        # Сохранение в транзакции осуществляется снаружи (uow.atomic())
-        order = await self.uow.orders.create(order)
-
-        for it in domain_items:
-            it.order = order
-            it.__post_init__()  # синхронизируем order_id
+        # Обновляем итоговую сумму заказа
+        order.total_amount = total
 
         await self.uow.order_items.create_items(domain_items)
         order.items = domain_items
 
-        # Важно: уведомление вне DB flush'ей — после успешного создания
-        await self.notifier.notify_order_created(
-            telegram_id=telegram_id,
-            order=order,
-            full_name=full_name,
-            phone=phone,
-            address=address,
-        )
+        # Отправляем уведомление (если настроен notifier)
+        if self.notifier:
+            await self.notifier.notify_order_created(
+                telegram_id=telegram_id,
+                order=order,
+                full_name=full_name,
+                phone=phone,
+                address=address,
+            )
 
         return order

@@ -1,8 +1,9 @@
-# src/infrastructure/di/providers.py — исправленный вариант без дубликатов
+# src/infrastructure/di/providers.py — финальная версия
 
 from typing import AsyncGenerator
 
 from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
 from dishka import Provider, Scope, provide
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -76,7 +77,7 @@ class DbProvider(Provider):
 class MemoryProvider(Provider):
     scope = Scope.APP
 
-    @provide(scope=Scope.APP)
+    @provide
     def get_cart_repo(self) -> ICartRepository:
         return InMemoryCartRepository()
 
@@ -114,8 +115,11 @@ class TelegramProvider(Provider):
 
     @provide
     def get_bot(self, config: Settings) -> Bot:
-        # единый инстанс бота для всего приложения
-        return Bot(token=config.bot.token.get_secret_value(), parse_mode="HTML")
+        # поддержка aiogram 3.7+
+        return Bot(
+            token=config.bot.token.get_secret_value(),
+            default=DefaultBotProperties(parse_mode="HTML"),
+        )
 
 
 class ServiceProvider(Provider):
