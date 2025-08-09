@@ -2,6 +2,7 @@
 
 from typing import AsyncGenerator
 
+from aiogram import Bot
 from dishka import Provider, Scope, provide
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -10,14 +11,16 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from aiogram import Bot
-
 # --- Импорты Контрактов ---
 from src.application.contracts.cart.cart_repository import ICartRepository
-from src.application.contracts.persistence.uow import IUnitOfWork
 from src.application.contracts.notifications.notifier import INotifier
-from src.application.interfaces.repositories.category_repository import ICategoryRepository
-from src.application.interfaces.repositories.product_repository import IProductRepository
+from src.application.contracts.persistence.uow import IUnitOfWork
+from src.application.interfaces.repositories.category_repository import (
+    ICategoryRepository,
+)
+from src.application.interfaces.repositories.product_repository import (
+    IProductRepository,
+)
 from src.application.interfaces.repositories.user_repository import IUserRepository
 
 # --- Импорты Сервисов ---
@@ -25,12 +28,16 @@ from src.application.services.ai_consultant import AIConsultantService
 from src.application.services.catalog import CategoryService, ProductService
 from src.application.services.order_service import OrderService
 from src.application.services.user_service import UserService
+from src.infrastructure.ai.gemini_client import GeminiClient
 
 # --- Импорты Реализаций ---
 from src.infrastructure.config import Settings, settings
-from src.infrastructure.ai.gemini_client import GeminiClient
-from src.infrastructure.database.repositories.category_repository import CategoryRepository
-from src.infrastructure.database.repositories.product_repository import ProductRepository
+from src.infrastructure.database.repositories.category_repository import (
+    CategoryRepository,
+)
+from src.infrastructure.database.repositories.product_repository import (
+    ProductRepository,
+)
 from src.infrastructure.database.repositories.user_repository import UserRepository
 from src.infrastructure.database.uow import UnitOfWork
 from src.infrastructure.memory.cart_repository import InMemoryCartRepository
