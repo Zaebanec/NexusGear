@@ -5,13 +5,14 @@ from dishka import AsyncContainer, Scope
 
 from src.application.services.catalog import CategoryService
 from src.presentation.web.api.schemas.category import CategorySchema
+from src.presentation.web.app_keys import APP_DISHKA_CONTAINER
 
 async def get_categories(request: web.Request) -> web.Response:
     """
     Эндпоинт для получения списка всех категорий.
     GET /api/categories
     """
-    dishka_container: AsyncContainer = request.app["dishka_container"]
+    dishka_container: AsyncContainer = request.app[APP_DISHKA_CONTAINER]
     
     async with dishka_container(scope=Scope.REQUEST) as request_container:
         category_service = await request_container.get(CategoryService)

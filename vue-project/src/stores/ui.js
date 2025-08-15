@@ -22,6 +22,16 @@ export const useUiStore = defineStore('ui', {
     remove(id) {
       this.toasts = this.toasts.filter(t => t.id !== id)
     },
+    /** Унифицированная обработка ошибок ответа API { error: { code, message } } */
+    async toastFromResponse(res) {
+      try {
+        const data = await res.json()
+        const msg = data?.error?.message || 'Error'
+        this.toast(msg, 'error', 3500)
+      } catch {
+        this.toast('Error', 'error', 3500)
+      }
+    },
   },
 })
 

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, AsyncContextManager
+from typing import AsyncContextManager
 
 from src.application.contracts.order.order_repository import (
     IOrderItemRepository,

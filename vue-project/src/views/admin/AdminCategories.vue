@@ -12,33 +12,38 @@ const newName = ref('')
 const editId = ref(null)
 const editName = ref('')
 
-// Search & Pagination
+// Search & Pagination (server-side)
 const searchQuery = ref('')
 const page = ref(1)
 const perPageOptions = [10, 20, 50]
 const perPage = ref(10)
-const filtered = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return categories.value
-  return categories.value.filter(c => String(c.name || c.title || '').toLowerCase().includes(q) || String(c.id).includes(q))
-})
-const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / perPage.value)))
-const paginated = computed(() => {
-  const start = (page.value - 1) * perPage.value
-  return filtered.value.slice(start, start + perPage.value)
-})
+const total = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / perPage.value)))
 
 const auth = useAuthStore()
 const ui = useUiStore()
+
+const isCreating = ref(false)
+const isSaving = ref(false)
+const deletingId = ref(0)
+
+async function loadCategories() {
+  const params = new URLSearchParams()
+  if (searchQuery.value.trim()) params.set('q', searchQuery.value.trim())
+  params.set('limit', String(perPage.value))
+  params.set('offset', String((page.value - 1) * perPage.value))
+  const r = await fetch(`/api/v1/admin/categories?${params.toString()}`, { headers: { 'X-Admin-Token': auth.token || '', 'X-Admin-User': String(auth.userId || '') } })
+  if (!r.ok) { await ui.toastFromResponse(r); throw new Error('failed to load categories') }
+  categories.value = await r.json()
+  const tc = Number(r.headers.get('x-total-count') || '0')
+  total.value = Number.isFinite(tc) ? tc : categories.value.length
+}
 
 onMounted(async () => {
   await auth.bootstrapFromTwa()
   try {
     isLoading.value = true
-    const r = await fetch('/api/v1/admin/categories', { headers: { 'X-Admin-Token': auth.token || '', 'X-Admin-User': String(auth.userId || '') } })
-    if (!r.ok) throw new Error('failed to load categories')
-    categories.value = await r.json()
-    page.value = 1
+    await loadCategories()
   } catch (e) {
     error.value = e?.message || 'error'
   } finally {
@@ -47,22 +52,25 @@ onMounted(async () => {
 })
 
 async function createCategory() {
+  if (isCreating.value) return
   const name = newName.value.trim()
   if (name.length < 2) { ui.toast('Name must be at least 2 chars', 'error', 2500); return }
+  isCreating.value = true
   const r = await fetch('/api/v1/admin/categories', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Admin-Token': auth.token || '', 'X-Admin-User': String(auth.userId || '') },
     body: JSON.stringify({ name })
   })
   if (r.ok) {
-    const created = await r.json()
-    categories.value.push(created)
+    await r.json()
     page.value = 1
+    await loadCategories()
     newName.value = ''
     ui.toast('Category created', 'success', 1800)
   } else {
-    ui.toast('Failed to create category', 'error', 2500)
+    await ui.toastFromResponse(r)
   }
+  isCreating.value = false
 }
 
 function startEdit(c) {
@@ -72,6 +80,8 @@ function startEdit(c) {
 
 async function saveEdit() {
   if (!editId.value) return
+  if (isSaving.value) return
+  isSaving.value = true
   const name = editName.value.trim()
   if (name.length < 2) { ui.toast('Name must be at least 2 chars', 'error', 2500); return }
   const r = await fetch(`/api/v1/admin/categories/${editId.value}`, {
@@ -80,27 +90,32 @@ async function saveEdit() {
     body: JSON.stringify({ name })
   })
   if (r.ok) {
-    const updated = await r.json()
-    const idx = categories.value.findIndex(x => x.id === updated.id)
-    if (idx !== -1) categories.value[idx] = updated
-    page.value = 1
+    await r.json()
+    await loadCategories()
     editId.value = null
     editName.value = ''
     ui.toast('Saved', 'success', 1500)
   } else {
-    ui.toast('Failed to save', 'error', 2500)
+    await ui.toastFromResponse(r)
   }
+  isSaving.value = false
 }
 
 async function removeCategory(id) {
+  if (!confirm(`Delete category #${id}?`)) return
+  deletingId.value = id
   const r = await fetch(`/api/v1/admin/categories/${id}`, { method: 'DELETE', headers: { 'X-Admin-Token': auth.token || '', 'X-Admin-User': String(auth.userId || '') } })
   if (r.ok) {
-    categories.value = categories.value.filter(x => x.id !== id)
-    if (page.value > totalPages.value) page.value = totalPages.value
+    await loadCategories()
+    if (categories.value.length === 0 && page.value > 1) {
+      page.value = page.value - 1
+      await loadCategories()
+    }
     ui.toast('Deleted', 'success', 1500)
   } else {
-    ui.toast('Failed to delete', 'error', 2500)
+    await ui.toastFromResponse(r)
   }
+  if (deletingId.value === id) deletingId.value = 0
 }
 </script>
 
@@ -112,16 +127,16 @@ async function removeCategory(id) {
     <div v-else-if="error">{{ error }}</div>
     <div v-else>
       <div class="panel panel-top">
-        <input class="field" v-model="searchQuery" placeholder="Search by id or name" @input="(page = 1)" />
+        <input class="field" v-model="searchQuery" placeholder="Search by id or name" @input="(page = 1, loadCategories())" />
         <div class="spacer" />
         <label class="muted">Per page</label>
-        <select class="field" v-model.number="perPage" @change="(page = 1)">
+        <select class="field" v-model.number="perPage" @change="(page = 1, loadCategories())">
           <option v-for="o in perPageOptions" :key="o" :value="o">{{ o }}</option>
         </select>
       </div>
       <div class="panel">
         <input class="field" v-model="newName" placeholder="New category name" />
-        <button class="btn" @click="createCategory">Create</button>
+        <button class="btn" :disabled="isCreating" @click="createCategory">{{ isCreating ? 'Creating…' : 'Create' }}</button>
       </div>
       <table class="table">
         <thead>
@@ -132,7 +147,7 @@ async function removeCategory(id) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="c in paginated" :key="c.id">
+          <tr v-for="c in categories" :key="c.id">
             <td>{{ c.id }}</td>
             <td>
               <template v-if="editId === c.id">
@@ -144,21 +159,21 @@ async function removeCategory(id) {
             </td>
             <td class="actions">
               <template v-if="editId === c.id">
-                <button class="btn" @click="saveEdit">Save</button>
+                <button class="btn" :disabled="isSaving" @click="saveEdit">{{ isSaving ? 'Saving…' : 'Save' }}</button>
                 <button class="btn" @click="(editId = null, editName = '')">Cancel</button>
               </template>
               <template v-else>
                 <button class="btn" @click="startEdit(c)">Edit</button>
-                <button class="btn" @click="removeCategory(c.id)">Delete</button>
+                <button class="btn" :disabled="deletingId===c.id" @click="removeCategory(c.id)">{{ deletingId===c.id ? 'Deleting…' : 'Delete' }}</button>
               </template>
             </td>
           </tr>
         </tbody>
       </table>
       <div class="pagination" v-if="totalPages > 1">
-        <button class="btn" :disabled="page <= 1" @click="page = Math.max(1, page - 1)">Prev</button>
+        <button class="btn" :disabled="page <= 1" @click="(page = Math.max(1, page - 1), loadCategories())">Prev</button>
         <span class="muted">Page {{ page }} / {{ totalPages }}</span>
-        <button class="btn" :disabled="page >= totalPages" @click="page = Math.min(totalPages, page + 1)">Next</button>
+        <button class="btn" :disabled="page >= totalPages" @click="(page = Math.min(totalPages, page + 1), loadCategories())">Next</button>
       </div>
     </div>
   </section>

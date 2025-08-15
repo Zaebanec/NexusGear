@@ -8,7 +8,7 @@ from src.application.contracts.order.order_repository import (
     IOrderItemRepository,
     IOrderRepository,
 )
-from src.domain.entities.order import Order as DomainOrder
+from src.domain.entities.order import Order as DomainOrder, OrderStatus
 from src.domain.entities.order_item import OrderItem as DomainOrderItem
 from src.infrastructure.database.models import Order as DbOrder
 from src.infrastructure.database.models import OrderItem as DbOrderItem
@@ -18,7 +18,7 @@ def _to_domain_order(db: DbOrder) -> DomainOrder:
     return DomainOrder(
         id=db.id,
         user_id=db.user_id,
-        status=db.status,
+        status=OrderStatus(db.status) if not isinstance(db.status, OrderStatus) else db.status,
         total_amount=db.total_amount,
     )
 
@@ -52,7 +52,7 @@ class OrderRepository(IOrderRepository):
         db_order = await self.session.scalar(stmt)
         if not db_order:
             return None
-        db_order.status = status  # SQLAlchemy Enum колонка примет str значения
+        db_order.status = OrderStatus(status) if not isinstance(status, OrderStatus) else status
         await self.session.flush([db_order])
         return _to_domain_order(db_order)
 
@@ -77,13 +77,18 @@ class OrderItemRepository(IOrderItemRepository):
         stmt = select(DbOrderItem).where(DbOrderItem.order_id == order_id)
         res = await self.session.execute(stmt)
         rows = res.scalars().all()
-        return [
-            DomainOrderItem(
-                id=i.id,
-                order=_to_domain_order(await self.session.get(DbOrder, i.order_id)),
-                product_id=i.product_id,
-                quantity=i.quantity,
-                price_at_purchase=i.price_at_purchase,
+        items: list[DomainOrderItem] = []
+        for i in rows:
+            db_parent = await self.session.get(DbOrder, i.order_id)
+            if not db_parent:
+                continue
+            items.append(
+                DomainOrderItem(
+                    id=i.id,
+                    order=_to_domain_order(db_parent),
+                    product_id=i.product_id,
+                    quantity=i.quantity,
+                    price_at_purchase=i.price_at_purchase,
+                )
             )
-            for i in rows
-        ]
+        return items
