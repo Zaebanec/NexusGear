@@ -12,6 +12,7 @@ from src.application.contracts.persistence.uow import IUnitOfWork
 from src.application.services.order_service import OrderService
 from .api.handlers.category import get_categories
 from .api.handlers.product import get_products_by_category
+from .api_handlers import routes as api_routes
 from .api.schemas.order import CreateOrderSchema
 from pydantic import ValidationError
 
@@ -45,8 +46,6 @@ async def webhook_handler(request: web.Request) -> web.Response:
     return web.Response()
 
 async def create_order_api_handler(request: web.Request) -> web.Response:
-    bot: Bot = request.app["bot"]
-    
     try:
         data = await request.json()
         logging.info(f"--- Received data for order creation: {data} ---")
@@ -59,11 +58,11 @@ async def create_order_api_handler(request: web.Request) -> web.Response:
 
         telegram_id = order_data.user.id
         dishka_container: AsyncContainer = request.app["dishka_container"]
-        
+
         async with dishka_container(scope=Scope.REQUEST) as request_container:
             uow = await request_container.get(IUnitOfWork)
             order_service = await request_container.get(OrderService)
-            
+
             async with uow.atomic():
                 order = await order_service.create_order_from_api(
                 telegram_id=telegram_id,
@@ -104,12 +103,20 @@ def setup_app(
 
     # Регистрируем все роуты
     app.router.add_static("/assets", path="src/presentation/web/static/assets", name="assets")
-    app.router.add_get("/", lambda req: web.FileResponse("src/presentation/web/static/index.html"))
-    
+
+    async def index_handler(request: web.Request) -> web.StreamResponse:
+        return web.FileResponse("src/presentation/web/static/index.html")
+
+    app.router.add_get("/", index_handler)
+
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
     app.router.add_get("/api/categories", get_categories)
     app.router.add_post("/api/create_order", create_order_api_handler)
     app.router.add_get("/api/products", get_products_by_category)
+    app.add_routes(api_routes)
+
+    # SPA fallback: любые не-API запросы отдаем index.html, чтобы роутер фронта работал по прямым ссылкам
+    app.router.add_get("/{tail:.*}", index_handler)
 
     # Применяем CORS ко всем зарегистрированным роутам
     for route in list(app.router.routes()):

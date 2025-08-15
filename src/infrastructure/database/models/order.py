@@ -4,9 +4,14 @@ from decimal import Decimal
 from sqlalchemy import BigInteger, Enum as SAEnum, ForeignKey, Numeric, func
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import TYPE_CHECKING
 
 from src.domain.entities.order import OrderStatus
 from .base import Base
+
+
+if TYPE_CHECKING:
+    from .order_item import OrderItem  # noqa: F401
 
 
 class Order(Base):
@@ -21,4 +26,6 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
 
-    items: Mapped[list["OrderItem"]] = relationship(back_populates="order")
+    items: Mapped[list["OrderItem"]] = relationship(
+        "OrderItem", back_populates="order"
+    )

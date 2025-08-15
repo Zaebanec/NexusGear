@@ -7,6 +7,7 @@ from http import HTTPStatus
 from aiohttp import web
 
 from src.application.services.catalog import CategoryService, ProductService
+from src.presentation.web.auth.telegram import validate_telegram_data
 
 routes = web.RouteTableDef()
 
@@ -62,8 +63,18 @@ async def get_product_by_id(request: web.Request) -> web.Response:
             {"error": "Некорректный ID товара"},
             status=HTTPStatus.BAD_REQUEST
         )
+
+
+@routes.post("/api/v1/auth/telegram/validate")
+async def auth_validate(request: web.Request) -> web.Response:
+    try:
+        payload = await request.json()
+        result = await validate_telegram_data(payload)
+        if result["status"] == "ok":
+            return web.json_response(result, status=HTTPStatus.OK)
+        return web.json_response(result, status=HTTPStatus.UNAUTHORIZED)
     except Exception as e:
-        logging.exception("Ошибка при получении товара: %s", e)
+        logging.exception("Ошибка при валидации Telegram WebApp: %s", e)
         return web.json_response(
             {"error": "Internal server error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR
         )

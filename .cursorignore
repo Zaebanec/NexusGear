@@ -1,0 +1,42 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+
+# JS/TS
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+.eslintcache
+
+# Data & artifacts
+*.sqlite
+*.db
+*.log
+*.tmp
+*.cache/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Docker & compose noise
+**/docker-data/
+**/pgdata/
+**/.docker/
+
+# Git
+.git/
+.gitignore
+
+# Frontend prod bundles
+frontend/**/dist/
+frontend/**/.vite/
+
+# Alembic cache
+alembic/versions/__pycache__/

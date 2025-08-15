@@ -1,5 +1,6 @@
 # src/infrastructure/database/repositories/order_repository.py
 
+from typing import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +46,7 @@ class OrderItemRepository(IOrderItemRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_items(self, items: list[DomainOrderItem]) -> None:
+    async def create_items(self, items: Iterable[DomainOrderItem]) -> None:
         db_items = [
             DbOrderItem(
                 order_id=i.order_id,

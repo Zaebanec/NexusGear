@@ -1,0 +1,38 @@
+name: Frontend CI
+
+on:
+  push:
+    paths:
+      - 'vue-project/**'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    paths:
+      - 'vue-project/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vue-project/package-lock.json
+
+      - name: Install
+        working-directory: vue-project
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        working-directory: vue-project
+        run: npm run lint
+
+      - name: Build
+        working-directory: vue-project
+        run: npm run build
+
+

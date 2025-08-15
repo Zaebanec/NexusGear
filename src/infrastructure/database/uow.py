@@ -22,7 +22,10 @@ class UnitOfWork(IUnitOfWork):
         self.users: IUserRepository = UserRepository(self._session)
         self.products: IProductRepository = ProductRepository(self._session)        # NEW
 
+    def atomic(self):
+        return self._atomic()
+
     @asynccontextmanager
-    async def atomic(self):
+    async def _atomic(self):
         async with self._session.begin():
             yield

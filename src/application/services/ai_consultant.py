@@ -63,7 +63,7 @@ class AIConsultantService(IAIConsultantService):
             json_response_str = raw_response.strip().replace("```json", "").replace("```", "")
             parsed_response = json.loads(json_response_str)
             return parsed_response
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError):
             # Если AI вернул что-то не то, возвращаем ошибку
             return {
                 "product_id": None,

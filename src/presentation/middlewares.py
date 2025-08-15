@@ -4,7 +4,7 @@ import logging
 from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware
-from aiogram.types import Update
+from aiogram.types import TelegramObject
 
 
 class LoggingMiddleware(BaseMiddleware):
@@ -13,8 +13,8 @@ class LoggingMiddleware(BaseMiddleware):
     """
     async def __call__(
         self,
-        handler: Callable[[Update, Dict[str, Any]], Awaitable[Any]],
-        event: Update,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
         # Просто выводим в лог все содержимое объекта Update

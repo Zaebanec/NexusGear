@@ -19,6 +19,10 @@ async def start_handler(message: Message, dishka_container: AsyncContainer):
     Обработчик команды /start. Регистрирует пользователя и отправляет
     приветственное сообщение с кнопкой для открытия магазина (TWA на Vue).
     """
+    # Защита от отсутствующего from_user (mypy)
+    if message.from_user is None:
+        return
+
     async with dishka_container(scope=Scope.REQUEST) as request_container:
         user_service = await request_container.get(UserService)
         await user_service.register_user_if_not_exists(

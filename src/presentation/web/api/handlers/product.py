@@ -2,7 +2,6 @@
 
 from aiohttp import web
 from dishka import AsyncContainer, Scope
-from typing import List
 
 from src.application.services.catalog import ProductService
 from src.presentation.web.api.schemas.product import ProductSchema

@@ -34,7 +34,7 @@ class OrderService:
         if not cart_items:
             raise ValueError("Корзина пуста")
 
-        total = sum(item.price * item.quantity for item in cart_items)
+        total = sum((item.price * item.quantity for item in cart_items), start=Decimal("0"))
 
         order = Order(
             id=0,

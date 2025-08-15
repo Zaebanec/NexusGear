@@ -1,10 +1,11 @@
 # src/application/contracts/order/create_order.py
 
-from pydantic import BaseModel, conint
+from typing import Annotated
+from pydantic import BaseModel, Field
 
 class OrderItemIn(BaseModel):
-    product_id: conint(strict=True, gt=0)
-    quantity: conint(strict=True, gt=0)
+    product_id: Annotated[int, Field(strict=True, gt=0)]
+    quantity: Annotated[int, Field(strict=True, gt=0)]
 
 class CreateOrderIn(BaseModel):
     telegram_id: int

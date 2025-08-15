@@ -32,6 +32,9 @@ async def start_consultation(message: Message, state: FSMContext):
 async def process_query(message: Message, state: FSMContext, dishka_container: AsyncContainer):
     await message.chat.do(ChatAction.TYPING)
     
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте текстовое сообщение с запросом.")
+        return
     async with dishka_container(scope=Scope.REQUEST) as request_container:
         ai_service = await request_container.get(AIConsultantService)
         product_service = await request_container.get(ProductService)
@@ -39,7 +42,7 @@ async def process_query(message: Message, state: FSMContext, dishka_container: A
         recommendation = await ai_service.get_recommendation(message.text)
         
         product_id = recommendation.get("product_id")
-        explanation = recommendation.get("explanation")
+        explanation = str(recommendation.get("explanation") or "")
 
         if product_id:
             product = await product_service.get_by_id(product_id)

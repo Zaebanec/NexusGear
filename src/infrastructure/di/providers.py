@@ -58,7 +58,7 @@ class DbProvider(Provider):
 
     @provide
     def get_engine(self, config: Settings) -> AsyncEngine:
-        return create_async_engine(url=config.db.url)
+        return create_async_engine(url=str(config.db.url))
 
     @provide
     def get_session_factory(
@@ -130,8 +130,10 @@ class ServiceProvider(Provider):
         return TelegramNotifier(bot)
 
     @provide
-    def get_order_service(self, uow: IUnitOfWork, notifier: INotifier) -> OrderService:
-        return OrderService(uow, notifier)
+    def get_order_service(
+        self, uow: IUnitOfWork, cart_repo: ICartRepository, notifier: INotifier
+    ) -> OrderService:
+        return OrderService(uow=uow, cart_repo=cart_repo, notifier=notifier)
 
     @provide
     def get_category_service(

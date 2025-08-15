@@ -18,7 +18,6 @@ class DBSettings(BaseSettings):
     name: str
 
     @computed_field
-    @property
     def url(self) -> str:
         """Формирует URL для асинхронного подключения к PostgreSQL."""
         return (
@@ -57,4 +56,4 @@ class Settings(BaseSettings):
 
 
 # Создаем единственный экземпляр настроек
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
