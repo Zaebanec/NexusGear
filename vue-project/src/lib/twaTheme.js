@@ -1,3 +1,4 @@
+/** @param {any} tg */
 export function applyTgTheme(tg) {
   if (!tg) return
   const p = tg.themeParams || {}

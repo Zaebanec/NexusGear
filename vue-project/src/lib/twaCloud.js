@@ -1,5 +1,5 @@
 function getCloud(tg) {
-  const webApp = tg || (typeof window !== 'undefined' ? window.Telegram?.WebApp : null)
+  const webApp = tg || (typeof window !== 'undefined' ? /** @type {any} */ (window).Telegram?.WebApp : null)
   return webApp?.CloudStorage || null
 }
 

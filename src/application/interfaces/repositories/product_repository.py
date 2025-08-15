@@ -23,4 +23,19 @@ class IProductRepository(ABC):
     async def get_all(self) -> list[Product]:
         """Возвращает все товары."""
         raise NotImplementedError
+
+    @abstractmethod
+    async def add(self, product: Product) -> Product:
+        """Создаёт товар и возвращает его с присвоенным идентификатором."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def update(self, product: Product) -> Product | None:
+        """Обновляет товар; возвращает обновлённый или None, если не найден."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete(self, product_id: int) -> bool:
+        """Удаляет товар; возвращает True, если удаление произошло."""
+        raise NotImplementedError
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---

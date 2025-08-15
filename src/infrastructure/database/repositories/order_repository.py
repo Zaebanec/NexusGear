@@ -42,6 +42,20 @@ class OrderRepository(IOrderRepository):
         db_order = await self.session.scalar(stmt)
         return _to_domain_order(db_order) if db_order else None
 
+    async def get_all(self) -> list[DomainOrder]:
+        stmt = select(DbOrder).order_by(DbOrder.id.desc())
+        res = await self.session.execute(stmt)
+        return [_to_domain_order(row) for row in res.scalars().all()]
+
+    async def update_status(self, order_id: int, status: str) -> DomainOrder | None:
+        stmt = select(DbOrder).where(DbOrder.id == order_id)
+        db_order = await self.session.scalar(stmt)
+        if not db_order:
+            return None
+        db_order.status = status  # SQLAlchemy Enum колонка примет str значения
+        await self.session.flush([db_order])
+        return _to_domain_order(db_order)
+
 class OrderItemRepository(IOrderItemRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -58,3 +72,18 @@ class OrderItemRepository(IOrderItemRepository):
         ]
         self.session.add_all(db_items)
         # flush не обязателен здесь, транзакция закроется в UoW.atomic()
+
+    async def get_by_order_id(self, order_id: int) -> list[DomainOrderItem]:
+        stmt = select(DbOrderItem).where(DbOrderItem.order_id == order_id)
+        res = await self.session.execute(stmt)
+        rows = res.scalars().all()
+        return [
+            DomainOrderItem(
+                id=i.id,
+                order=_to_domain_order(await self.session.get(DbOrder, i.order_id)),
+                product_id=i.product_id,
+                quantity=i.quantity,
+                price_at_purchase=i.price_at_purchase,
+            )
+            for i in rows
+        ]

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 export const useCatalogStore = defineStore('catalog', {
   state: () => ({
+    /** @type {{ id:number; name?:string; title?:string; slug?:string }[]} */
     categories: [],
     isLoaded: false,
     isLoading: false,
@@ -17,7 +18,10 @@ export const useCatalogStore = defineStore('catalog', {
         this.categories = await response.json()
         this.isLoaded = true
       } catch (e) {
-        this.error = e?.message ?? 'failed to load'
+        /** @type {{ message?: string }} */
+        // @ts-ignore
+        const err = e || {}
+        this.error = err?.message ?? 'failed to load'
       } finally {
         this.isLoading = false
       }

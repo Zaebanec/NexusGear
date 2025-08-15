@@ -73,7 +73,7 @@ onMounted(() => {
 
 <template>
   <section class="page-section">
-    <h2 class="section-title">Корзина</h2>
+    <h2 class="section-title">{{ $t('cart.title') }}</h2>
     <div v-if="itemsCount" class="cart-list">
       <div v-for="p in cart.items" :key="p.id" class="cart-row">
         <div class="title">{{ p.name }}</div>
@@ -85,16 +85,16 @@ onMounted(() => {
         <div class="sum">{{ new Intl.NumberFormat('ru-RU',{ style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(p.price * p.quantity) }}</div>
         <button class="remove" @click="cart.removeProduct(p.id)">×</button>
       </div>
-      <div class="summary">Итого: {{ new Intl.NumberFormat('ru-RU',{ style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total) }}</div>
+      <div class="summary">{{ $t('cart.total') }}: {{ new Intl.NumberFormat('ru-RU',{ style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(total) }}</div>
 
       <div class="form">
-        <input class="field" :class="{ invalid: !isNameValid && fullName }" v-model="fullName" placeholder="Ваше имя" />
-        <input class="field" :class="{ invalid: !isPhoneValid && phone }" v-model="phoneMasked" placeholder="Телефон" inputmode="tel" />
-        <input class="field" :class="{ invalid: !isAddressValid && address }" v-model="address" placeholder="Адрес доставки" />
-        <p class="hint" v-if="phone && !isPhoneValid">Введите номер формата +7 ХХХ ХХХ-ХХ-ХХ</p>
+        <input class="field" :class="{ invalid: !isNameValid && fullName }" v-model="fullName" :placeholder="$t('cart.name')" />
+        <input class="field" :class="{ invalid: !isPhoneValid && phone }" v-model="phoneMasked" :placeholder="$t('cart.phone')" inputmode="tel" />
+        <input class="field" :class="{ invalid: !isAddressValid && address }" v-model="address" :placeholder="$t('cart.address')" />
+        <p class="hint" v-if="phone && !isPhoneValid">{{ $t('cart.phoneHint') }}</p>
       </div>
     </div>
-    <div v-else class="empty">Корзина пуста</div>
+    <div v-else class="empty">{{ $t('cart.empty') }}</div>
   </section>
 </template>
 

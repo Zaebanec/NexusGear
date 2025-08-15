@@ -14,7 +14,7 @@ onMounted(() => {
 
 <template>
   <section class="page-section">
-    <h2 class="section-title">Категории</h2>
+    <h2 class="section-title">{{ $t('categories') }}</h2>
     <div v-if="catalog.isLoading" class="skeletons">
       <SkeletonBlock height="56px" />
       <SkeletonBlock height="56px" />

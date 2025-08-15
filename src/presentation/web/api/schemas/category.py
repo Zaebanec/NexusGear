@@ -12,3 +12,11 @@ class CategorySchema(BaseModel):
     # Эта конфигурация позволяет Pydantic читать данные
     # напрямую из SQLAlchemy-объектов (orm_mode).
     model_config = ConfigDict(from_attributes=True)
+
+
+class CategoryCreateSchema(BaseModel):
+    name: str
+
+
+class CategoryUpdateSchema(BaseModel):
+    name: str

@@ -31,6 +31,8 @@ class AppSettings(BaseSettings):
     """Настройки для веб-приложения (TWA, API)."""
     base_url: str
     secret_token: SecretStr
+    # CSV-список Telegram ID админов: "123,456"
+    admin_ids: str = ""
 
 # --- НАЧАЛО ИЗМЕНЕНИЯ ---
 class GeminiSettings(BaseSettings):

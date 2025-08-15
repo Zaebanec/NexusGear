@@ -30,7 +30,7 @@ onMounted(async () => {
 
 <template>
   <div class="products-view">
-    <h1>Товары в категории</h1>
+    <h1>{{ $t('productsInCategory') }}</h1>
     <div v-if="isLoading" class="skeletons">
       <SkeletonBlock height="220px" />
       <SkeletonBlock height="220px" />

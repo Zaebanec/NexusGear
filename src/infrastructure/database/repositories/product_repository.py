@@ -1,6 +1,6 @@
 # src/infrastructure/database/repositories/product_repository.py - ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
 
-from sqlalchemy import select
+from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.interfaces.repositories.product_repository import (
@@ -47,4 +47,36 @@ class ProductRepository(IProductRepository):
         stmt = select(DbProduct).order_by(DbProduct.id)
         result = await self.session.scalars(stmt)
         return [_to_domain_product(p) for p in result.all()]
+
+    async def add(self, product: DomainProduct) -> DomainProduct:
+        db = DbProduct(
+            name=product.name,
+            description=product.description,
+            price=product.price,
+            category_id=product.category_id,
+        )
+        self.session.add(db)
+        await self.session.flush()
+        await self.session.refresh(db)
+        return _to_domain_product(db)
+
+    async def update(self, product: DomainProduct) -> DomainProduct | None:
+        stmt = (
+            update(DbProduct)
+            .where(DbProduct.id == product.id)
+            .values(
+                name=product.name,
+                description=product.description,
+                price=product.price,
+                category_id=product.category_id,
+            )
+            .returning(DbProduct)
+        )
+        db = await self.session.scalar(stmt)
+        return _to_domain_product(db) if db else None
+
+    async def delete(self, product_id: int) -> bool:
+        stmt = delete(DbProduct).where(DbProduct.id == product_id)
+        result = await self.session.execute(stmt)
+        return bool(result.rowcount and result.rowcount > 0)
     # --- КОНЕЦ ИСПРАВЛЕНИЯ ---

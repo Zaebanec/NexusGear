@@ -23,6 +23,16 @@ class CategoryService:
     async def get_all(self) -> list[Category]:
         return await self.category_repo.get_all()
 
+    async def create(self, name: str) -> Category:
+        new_category = Category(id=0, name=name)
+        return await self.category_repo.add(new_category)
+
+    async def update(self, category_id: int, name: str) -> Category | None:
+        return await self.category_repo.update(Category(id=category_id, name=name))
+
+    async def delete(self, category_id: int) -> bool:
+        return await self.category_repo.delete(category_id)
+
 
 class ProductService:
     """
@@ -66,5 +76,29 @@ class ProductService:
             category_id=category_id,
             created_at=datetime.utcnow(),
         )
-        # В будущем здесь будет `self.product_repo.add(new_product)`
-        return new_product
+        return await self.product_repo.add(new_product)
+
+    async def update_product(
+        self,
+        product_id: int,
+        name: str,
+        description: str,
+        price: Decimal,
+        category_id: int,
+    ) -> Product | None:
+        category = await self.category_repo.get_by_id(category_id)
+        if not category:
+            raise ValueError(f"Категория с ID {category_id} не найдена.")
+        return await self.product_repo.update(
+            Product(
+                id=product_id,
+                name=name,
+                description=description,
+                price=price,
+                category_id=category_id,
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    async def delete_product(self, product_id: int) -> bool:
+        return await self.product_repo.delete(product_id)

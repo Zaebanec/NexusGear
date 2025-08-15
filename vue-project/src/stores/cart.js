@@ -2,8 +2,17 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch, onMounted } from 'vue'
 import { setItem as cloudSet, getItem as cloudGet, isCloudAvailable } from '../lib/twaCloud.js'
 
+/**
+ * @typedef {Object} CartItem
+ * @property {number} id
+ * @property {string} [name]
+ * @property {number} price
+ * @property {number} quantity
+ */
+
 export const useCartStore = defineStore('cart', () => {
   const STORAGE_KEY = 'ngs_cart_items_v1'
+  /** @type {import('vue').Ref<CartItem[]>} */
   const items = ref([])
 
   // Load persisted state (localStorage, затем CloudStorage)
@@ -26,13 +35,9 @@ export const useCartStore = defineStore('cart', () => {
     }
   })
 
-  const totalItems = computed(() =>
-    items.value.reduce((total, item) => total + item.quantity, 0)
-  )
+  const totalItems = computed(() => items.value.reduce((total, item) => total + item.quantity, 0))
 
-  const totalPrice = computed(() =>
-    items.value.reduce((total, item) => total + item.price * item.quantity, 0)
-  )
+  const totalPrice = computed(() => items.value.reduce((total, item) => total + item.price * item.quantity, 0))
 
   function addProduct(product) {
     const existing = items.value.find(i => i.id === product.id)

@@ -15,6 +15,7 @@ from .api.handlers.product import get_products_by_category
 from .api_handlers import routes as api_routes
 from .api.schemas.order import CreateOrderSchema
 from pydantic import ValidationError
+from .middlewares import admin_rate_limit_middleware
 
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{settings.app.base_url}{WEBHOOK_PATH}"
@@ -84,7 +85,7 @@ async def create_order_api_handler(request: web.Request) -> web.Response:
 def setup_app(
     dishka_container: AsyncContainer, bot: Bot, dispatcher: Dispatcher
 ) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[admin_rate_limit_middleware()])
     app["dishka_container"] = dishka_container
     app["bot"] = bot
     app["dispatcher"] = dispatcher

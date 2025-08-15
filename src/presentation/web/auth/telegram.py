@@ -43,10 +43,9 @@ async def validate_telegram_data(payload: Dict[str, Any]) -> Dict[str, Any]:
         if telegram_id is None:
             return {"status": "error", "message": "missing_user"}
 
-        # Produce a simple JWT-like opaque token without leaking secrets
-        # In a real app, use proper JWT lib. Here we return a stub for e2e flow.
-        token_seed = f"{telegram_id}:{parsed.auth_date or ''}"
-        token = hashlib.sha256(token_seed.encode()).hexdigest()
+        # Produce an HMAC-based opaque token that the server can verify later
+        secret = settings.app.secret_token.get_secret_value()
+        token = hmac.new(secret.encode(), str(telegram_id).encode(), hashlib.sha256).hexdigest()
         return {"status": "ok", "user_id": telegram_id, "token": token}
     except Exception:
         return {"status": "error", "message": "invalid_payload"}

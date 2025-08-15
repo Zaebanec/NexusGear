@@ -10,7 +10,7 @@ const totalItems = computed(() => cart.totalItems)
 
 <template>
   <header class="twa-header">
-    <RouterLink to="/" class="brand">NexusShop</RouterLink>
+    <RouterLink to="/" class="brand">{{ $t('brand') }}</RouterLink>
     <RouterLink to="/cart" class="cart-pill">🛒 {{ totalItems }}</RouterLink>
   </header>
   <main class="app-root">

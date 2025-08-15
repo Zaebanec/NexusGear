@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "jsx": "preserve",
+    "allowJs": true,
+    "checkJs": false,
+    "useUnknownInCatchVariables": false,
+    "baseUrl": ".",
+    "types": ["vite/client"]
+  },
+  "vueCompilerOptions": {
+    "strictTemplates": false
+  },
+  "include": ["src/**/*", "vite.config.*"]
+}
+
+

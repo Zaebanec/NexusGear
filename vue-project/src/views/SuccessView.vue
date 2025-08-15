@@ -27,10 +27,10 @@ onUnmounted(() => {
 
 <template>
   <section class="page-section">
-    <h2 class="section-title">Заказ оформлен</h2>
-    <p class="subtitle">Номер заказа: <strong>#{{ props.id }}</strong></p>
-    <p>Мы уже начали обработку заказа. Спасибо!</p>
-    <button class="btn-primary" @click="goHome">Вернуться в магазин</button>
+    <h2 class="section-title">{{ $t('success.title') }}</h2>
+    <p class="subtitle">{{ $t('success.number') }}: <strong>#{{ props.id }}</strong></p>
+    <p>{{ $t('success.back') }}</p>
+    <button class="btn-primary" @click="goHome">{{ $t('success.back') }}</button>
   </section>
 </template>
 

@@ -33,12 +33,13 @@ async def start_handler(message: Message, dishka_container: AsyncContainer):
     
     # --- НАЧАЛО ИСПРАВЛЕНИЯ: Создаем инлайн-кнопку для открытия Vue App ---
     builder = InlineKeyboardBuilder()
-    # Ссылка теперь ведет на корень сайта, где будет наше Vue-приложение
-    web_app_url = f"{settings.app.base_url}/" 
-    builder.button(
-        text="🛍️ Открыть магазин", 
-        web_app=WebAppInfo(url=web_app_url)
-    )
+    base = settings.app.base_url.rstrip('/')
+    store_url = f"{base}/"
+    admin_url = f"{base}/admin"
+    builder.button(text="🛍️ Открыть магазин", web_app=WebAppInfo(url=store_url))
+    builder.button(text="🛠 Админка", web_app=WebAppInfo(url=admin_url))
+    # по одному на строку, чтобы Telegram гарантированно отрисовал обе
+    builder.adjust(1)
     # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     await message.answer(

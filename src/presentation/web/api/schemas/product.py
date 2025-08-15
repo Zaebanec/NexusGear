@@ -12,3 +12,17 @@ class ProductSchema(BaseModel):
     category_id: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProductCreateSchema(BaseModel):
+    name: str
+    description: str
+    price: float
+    category_id: int
+
+
+class ProductUpdateSchema(BaseModel):
+    name: str
+    description: str
+    price: float
+    category_id: int
